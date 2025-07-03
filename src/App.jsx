@@ -4,7 +4,7 @@ import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, si
 import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, collection, onSnapshot, increment, addDoc, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { Toaster, toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode'; // Değiştirildi
 import { LogIn, UserPlus, LogOut, ShoppingCart, Package, History, Loader2, Search, Edit, Trash2, AlertTriangle, PlusCircle, Building, LayoutDashboard, DollarSign, PackageSearch, TrendingUp, Camera, X, PlusSquare, BarChart3 } from 'lucide-react';
 
 const firebaseConfig = {
@@ -249,18 +249,40 @@ const SaleSection = ({ onSell }) => {
 
 const CameraScanner = ({ onScanSuccess, onClose }) => {
     useEffect(() => {
-        const scanner = new Html5QrcodeScanner('barcode-scanner', { fps: 10, qrbox: { width: 250, height: 250 } }, false);
-        let isScanning = true;
-        const handleSuccess = (decodedText, decodedResult) => {
-            if (isScanning) { isScanning = false; scanner.clear(); onScanSuccess(decodedText); }
+        const html5QrCode = new Html5Qrcode("barcode-scanner-container");
+        let scannerIsRunning = false;
+
+        const startScanner = async () => {
+            try {
+                await html5QrCode.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: { width: 250, height: 150 } },
+                    (decodedText, decodedResult) => {
+                        if (scannerIsRunning) {
+                            onScanSuccess(decodedText);
+                        }
+                    },
+                    (errorMessage) => { /* ignore */ }
+                );
+                scannerIsRunning = true;
+            } catch (err) {
+                toast.error("Kamera başlatılamadı. Lütfen tarayıcı izinlerini kontrol edin.");
+                onClose();
+            }
         };
-        scanner.render(handleSuccess, (error) => {});
-        return () => { if (scanner && scanner.getState()) { scanner.clear().catch(err => console.error("Scanner clear failed", err)); }};
-    }, [onScanSuccess]);
+
+        startScanner();
+
+        return () => {
+            if (scannerIsRunning) {
+                html5QrCode.stop().catch(err => console.error("Scanner stop failed", err));
+            }
+        };
+    }, [onScanSuccess, onClose]);
 
     return (
         <div className="fixed inset-0 bg-black/80 flex flex-col items-center justify-center z-50 p-4">
-            <div id="barcode-scanner" className="w-full max-w-md bg-white rounded-lg overflow-hidden"></div>
+            <div id="barcode-scanner-container" className="w-full max-w-md bg-white rounded-lg overflow-hidden aspect-video"></div>
             <button onClick={onClose} className="mt-4 bg-white text-black px-4 py-2 rounded-lg font-semibold flex items-center gap-2">
                 <X size={18} /> Kapat
             </button>
