@@ -4,7 +4,7 @@ import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, si
 import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, collection, onSnapshot, increment, addDoc, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { Toaster, toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Html5Qrcode } from 'html5-qrcode'; // Değiştirildi
+import { Html5Qrcode } from 'html5-qrcode';
 import { LogIn, UserPlus, LogOut, ShoppingCart, Package, History, Loader2, Search, Edit, Trash2, AlertTriangle, PlusCircle, Building, LayoutDashboard, DollarSign, PackageSearch, TrendingUp, Camera, X, PlusSquare, BarChart3 } from 'lucide-react';
 
 const firebaseConfig = {
@@ -248,34 +248,33 @@ const SaleSection = ({ onSell }) => {
 };
 
 const CameraScanner = ({ onScanSuccess, onClose }) => {
+    const scannerRef = useRef(null);
+
     useEffect(() => {
-        const html5QrCode = new Html5Qrcode("barcode-scanner-container");
-        let scannerIsRunning = false;
+        if (!scannerRef.current) {
+            scannerRef.current = new Html5Qrcode("barcode-scanner-container");
+        }
+        const scanner = scannerRef.current;
+        let isScanning = true;
 
-        const startScanner = async () => {
-            try {
-                await html5QrCode.start(
-                    { facingMode: "environment" },
-                    { fps: 10, qrbox: { width: 250, height: 150 } },
-                    (decodedText, decodedResult) => {
-                        if (scannerIsRunning) {
-                            onScanSuccess(decodedText);
-                        }
-                    },
-                    (errorMessage) => { /* ignore */ }
-                );
-                scannerIsRunning = true;
-            } catch (err) {
-                toast.error("Kamera başlatılamadı. Lütfen tarayıcı izinlerini kontrol edin.");
-                onClose();
-            }
-        };
-
-        startScanner();
+        scanner.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: { width: 250, height: 150 } },
+            (decodedText, decodedResult) => {
+                if (isScanning) {
+                    isScanning = false;
+                    onScanSuccess(decodedText);
+                }
+            },
+            (errorMessage) => { /* ignore */ }
+        ).catch(err => {
+            toast.error("Kamera başlatılamadı. Lütfen tarayıcı izinlerini kontrol edin.");
+            onClose();
+        });
 
         return () => {
-            if (scannerIsRunning) {
-                html5QrCode.stop().catch(err => console.error("Scanner stop failed", err));
+            if (scanner && scanner.isScanning) {
+                scanner.stop().catch(err => console.error("Scanner stop failed", err));
             }
         };
     }, [onScanSuccess, onClose]);
