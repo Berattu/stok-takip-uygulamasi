@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, collection, onSnapshot, increment, addDoc, serverTimestamp, query, orderBy, where, Timestamp } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, collection, onSnapshot, increment, addDoc, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { Toaster, toast } from 'sonner';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { LogIn, UserPlus, LogOut, ShoppingCart, Package, History, Loader2, Search, Edit, Trash2, AlertTriangle, PlusCircle, Building, LayoutDashboard, DollarSign, PackageSearch, TrendingUp } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Html5QrcodeScanner } from 'html5-qrcode';
+import { LogIn, UserPlus, LogOut, ShoppingCart, Package, History, Loader2, Search, Edit, Trash2, AlertTriangle, PlusCircle, Building, LayoutDashboard, DollarSign, PackageSearch, TrendingUp, Camera, X, PlusSquare, BarChart3 } from 'lucide-react';
 
 const firebaseConfig = {
   apiKey: "AIzaSyAb0VoKLRJKKgst9DVC_cb2ZU5wchfdTIM",
@@ -27,11 +28,9 @@ try {
 }
 
 // --- Helper Functions ---
-const formatCurrency = (value) => {
-    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value || 0);
-};
+const formatCurrency = (value) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value || 0);
 
-// --- Main App Component (Authentication Router) ---
+// --- Main App Component ---
 export default function App() {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -130,13 +129,11 @@ const StockApp = ({ user }) => {
             setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setLoading(prev => ({ ...prev, products: false }));
         });
-
         const salesQuery = query(collection(db, salesPath), orderBy('saleDate', 'desc'));
         const unsubscribeSales = onSnapshot(salesQuery, (snapshot) => {
             setSales(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setLoading(prev => ({ ...prev, sales: false }));
         });
-
         return () => { unsubscribeProducts(); unsubscribeSales(); };
     }, [productsPath, salesPath, user]);
     
@@ -156,7 +153,7 @@ const StockApp = ({ user }) => {
         } catch (error) { toast.error("Satış sırasında bir hata oluştu."); }
     }, [productsPath, salesPath]);
 
-    const handleAddProduct = useCallback(async (productData) => {
+    const handleAddOrUpdateProduct = useCallback(async (productData) => {
         const { barcode, name } = productData;
         const productRef = doc(db, productsPath, barcode);
         toast.promise(
@@ -173,13 +170,17 @@ const StockApp = ({ user }) => {
             { loading: 'Ürün işleniyor...', success: (data) => `'${data.name}' ${data.message}.`, error: 'İşlem sırasında bir hata oluştu.' }
         );
     }, [productsPath]);
-
-    const handleUpdateProduct = useCallback(async (productData) => {
-        const { id, name } = productData;
-        const productRef = doc(db, productsPath, id);
-        toast.promise(updateDoc(productRef, productData), { loading: 'Ürün güncelleniyor...', success: `'${name}' başarıyla güncellendi.`, error: 'Güncelleme sırasında hata oluştu.' });
-    }, [productsPath]);
     
+    const handleUpdateStock = useCallback(async (productId, amount) => {
+        if (!amount || isNaN(amount) || amount <= 0) {
+            toast.error("Lütfen geçerli bir miktar girin.");
+            return;
+        }
+        const productRef = doc(db, productsPath, productId);
+        await updateDoc(productRef, { stock: increment(amount) });
+        toast.success(`${amount} adet stok eklendi.`);
+    }, [productsPath]);
+
     const handleDeleteProduct = useCallback((id, name) => {
         const productRef = doc(db, productsPath, id);
         toast.promise(deleteDoc(productRef), { loading: `${name} siliniyor...`, success: `${name} başarıyla silindi.`, error: `Silme işlemi sırasında hata oluştu.` });
@@ -192,12 +193,12 @@ const StockApp = ({ user }) => {
                 <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-1 flex flex-col gap-6">
                         <SaleSection onSell={handleSellProduct} />
-                        <AddProductSection onAdd={handleAddProduct} products={products} />
+                        <AddProductSection onAdd={handleAddOrUpdateProduct} products={products} />
                     </div>
                     <div className="lg:col-span-2 bg-white p-4 sm:p-6 rounded-2xl shadow-sm">
                         <Tabs activeTab={activeTab} setActiveTab={setActiveTab} />
                         {activeTab === 'dashboard' && <Dashboard products={products} sales={sales} />}
-                        {activeTab === 'stock' && <ProductList products={filteredProducts} loading={loading.products} onUpdate={handleUpdateProduct} onDelete={handleDeleteProduct} searchTerm={searchTerm} setSearchTerm={setSearchTerm} />}
+                        {activeTab === 'stock' && <ProductList products={filteredProducts} loading={loading.products} onUpdate={handleAddOrUpdateProduct} onDelete={handleDeleteProduct} onAddStock={handleUpdateStock} searchTerm={searchTerm} setSearchTerm={setSearchTerm} />}
                         {activeTab === 'history' && <SalesHistory sales={sales} loading={loading.sales} />}
                     </div>
                 </main>
@@ -211,209 +212,234 @@ const Header = ({ userEmail }) => ( <header className="text-center mb-6 md:mb-8"
 
 const SaleSection = ({ onSell }) => {
     const [barcode, setBarcode] = useState('');
+    const [showScanner, setShowScanner] = useState(false);
     const inputRef = useRef(null); 
 
-    useEffect(() => {
-        if (inputRef.current) {
-            inputRef.current.focus();
-        }
-    }, []);
+    useEffect(() => { if (inputRef.current) inputRef.current.focus(); }, []);
 
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        onSell(barcode);
-        setBarcode('');
-        if (inputRef.current) {
-            inputRef.current.focus();
-        }
+    const handleSubmit = (e) => { e.preventDefault(); onSell(barcode); setBarcode(''); if (inputRef.current) inputRef.current.focus(); };
+
+    const onScanSuccess = (decodedText) => {
+        setShowScanner(false);
+        onSell(decodedText);
     };
 
     return (
         <div className="bg-white p-6 rounded-2xl shadow-sm">
             <h2 className="text-xl font-semibold mb-4 flex items-center gap-2"><ShoppingCart size={22} /> Hızlı Satış</h2>
             <form onSubmit={handleSubmit}>
-                <label htmlFor="barcode-input" className="block text-sm font-medium text-gray-600 mb-1">Ürün Barkodu</label>
-                <input
-                    ref={inputRef}
-                    id="barcode-input"
-                    type="text"
-                    value={barcode}
-                    onChange={(e) => setBarcode(e.target.value)}
-                    placeholder="Barkodu okutun veya girin..."
-                    className="input-style"
-                />
-                <button type="submit" className="hidden">Sat</button>
+                <div className="rounded-lg bg-gray-50 p-3 mb-3">
+                    <label htmlFor="barcode-input" className="block text-xs font-medium text-gray-500">Ürün Barkodu</label>
+                    <div className="flex items-center gap-2 mt-1">
+                        <input ref={inputRef} id="barcode-input" type="text" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Barkodu okutun veya girin..." className="block w-full border-0 bg-transparent p-0 text-gray-900 placeholder:text-gray-400 focus:ring-0 sm:text-sm"/>
+                        <button type="button" onClick={() => setShowScanner(true)} className="p-2 text-gray-500 hover:text-indigo-600" title="Kamera ile Tara">
+                            <Camera size={20} />
+                        </button>
+                    </div>
+                </div>
+                <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2">
+                    <ShoppingCart size={18} />
+                    Satış Yap
+                </button>
             </form>
+            {showScanner && <CameraScanner onScanSuccess={onScanSuccess} onClose={() => setShowScanner(false)} />}
         </div>
     );
 };
 
+const CameraScanner = ({ onScanSuccess, onClose }) => {
+    useEffect(() => {
+        const scanner = new Html5QrcodeScanner('barcode-scanner', { fps: 10, qrbox: { width: 250, height: 250 } }, false);
+        let isScanning = true;
+        const handleSuccess = (decodedText, decodedResult) => {
+            if (isScanning) { isScanning = false; scanner.clear(); onScanSuccess(decodedText); }
+        };
+        scanner.render(handleSuccess, (error) => {});
+        return () => { if (scanner && scanner.getState()) { scanner.clear().catch(err => console.error("Scanner clear failed", err)); }};
+    }, [onScanSuccess]);
+
+    return (
+        <div className="fixed inset-0 bg-black/80 flex flex-col items-center justify-center z-50 p-4">
+            <div id="barcode-scanner" className="w-full max-w-md bg-white rounded-lg overflow-hidden"></div>
+            <button onClick={onClose} className="mt-4 bg-white text-black px-4 py-2 rounded-lg font-semibold flex items-center gap-2">
+                <X size={18} /> Kapat
+            </button>
+        </div>
+    );
+};
+
+const FormInput = ({ label, id, required, children }) => (
+    <div className="rounded-lg bg-gray-50 p-3">
+        <label htmlFor={id} className="block text-xs font-medium text-gray-500">
+            {label}{required && <span className="text-red-500"> *</span>}
+        </label>
+        <div className="mt-1">
+            {children}
+        </div>
+    </div>
+);
+
 const AddProductSection = ({ onAdd, products }) => {
     const [product, setProduct] = useState({ name: '', barcode: '', stock: '', purchasePrice: '', salePrice: '', category: '' });
-    const [isSubmitting, setIsSubmitting] = useState(false);
-
-    const handleChange = (e) => setProduct({ ...product, [e.target.name]: e.target.value });
-
     const handleSubmit = async (e) => {
         e.preventDefault();
         const { name, barcode, stock, purchasePrice, salePrice } = product;
         if(!name || !barcode || !stock || !purchasePrice || !salePrice) { toast.warning("Lütfen yıldızlı alanları doldurun."); return; }
-        setIsSubmitting(true);
-        
         const productData = { ...product, stock: parseInt(stock), purchasePrice: parseFloat(purchasePrice), salePrice: parseFloat(salePrice) };
         const existingProduct = products.find(p => p.id === barcode);
-
         if (existingProduct) {
             toast( `Bu barkod "${existingProduct.name}" ürününe ait.`, { action: { label: 'Güncelle', onClick: () => { onAdd(productData); resetForm(); }}, cancel: { label: 'İptal' } });
         } else {
             await onAdd(productData);
             resetForm();
         }
-        setIsSubmitting(false);
     };
-    
     const resetForm = () => setProduct({ name: '', barcode: '', stock: '', purchasePrice: '', salePrice: '', category: '' });
+    
+    const inputClass = "block w-full border-0 bg-transparent p-0 text-gray-900 placeholder:text-gray-400 focus:ring-0 sm:text-sm";
 
-    return ( <div className="bg-white p-6 rounded-2xl shadow-sm"> <h2 className="text-xl font-semibold mb-4 flex items-center gap-2"><PlusCircle size={22} /> Yeni Ürün Ekle</h2> <form onSubmit={handleSubmit} className="space-y-4">
-        <input name="name" value={product.name} onChange={handleChange} placeholder="Ürün Adı *" className="input-style" />
-        <input name="barcode" value={product.barcode} onChange={handleChange} placeholder="Barkod Numarası *" className="input-style" />
-        <input name="stock" type="number" value={product.stock} onChange={handleChange} placeholder="Stok Adedi *" min="0" className="input-style" />
-        <div className="grid grid-cols-2 gap-4">
-            <input name="purchasePrice" type="number" value={product.purchasePrice} onChange={handleChange} placeholder="Alış Fiyatı (₺) *" min="0" step="0.01" className="input-style" />
-            <input name="salePrice" type="number" value={product.salePrice} onChange={handleChange} placeholder="Satış Fiyatı (₺) *" min="0" step="0.01" className="input-style" />
+    return ( <div className="bg-white p-6 rounded-2xl shadow-sm"> <h2 className="text-xl font-semibold mb-4 flex items-center gap-2"><PlusCircle size={22} /> Yeni Ürün Ekle</h2> <form onSubmit={handleSubmit} className="space-y-3">
+        <FormInput label="Ürün Adı" id="name" required><input type="text" name="name" id="name" value={product.name} onChange={(e) => setProduct({...product, name: e.target.value})} className={inputClass} placeholder="Örn: Kutu Süt"/></FormInput>
+        <FormInput label="Barkod Numarası" id="barcode" required><input type="text" name="barcode" id="barcode" value={product.barcode} onChange={(e) => setProduct({...product, barcode: e.target.value})} className={inputClass} placeholder="Okutun veya manuel girin"/></FormInput>
+        <FormInput label="Stok Adedi" id="stock" required><input type="number" name="stock" id="stock" value={product.stock} onChange={(e) => setProduct({...product, stock: e.target.value})} className={inputClass} placeholder="0" min="0"/></FormInput>
+        <div className="grid grid-cols-2 gap-3">
+            <FormInput label="Alış Fiyatı (₺)" id="purchasePrice" required><input type="number" name="purchasePrice" id="purchasePrice" value={product.purchasePrice} onChange={(e) => setProduct({...product, purchasePrice: e.target.value})} className={inputClass} placeholder="0.00" min="0" step="0.01"/></FormInput>
+            <FormInput label="Satış Fiyatı (₺)" id="salePrice" required><input type="number" name="salePrice" id="salePrice" value={product.salePrice} onChange={(e) => setProduct({...product, salePrice: e.target.value})} className={inputClass} placeholder="0.00" min="0" step="0.01"/></FormInput>
         </div>
-        <input name="category" value={product.category} onChange={handleChange} placeholder="Kategori (örn: Gıda)" className="input-style" />
-        <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-indigo-700 transition-all duration-300 flex items-center justify-center gap-2 disabled:bg-indigo-400"> {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : <PlusCircle size={20} />} <span>{isSubmitting ? 'İşleniyor...' : 'Ürünü Ekle'}</span> </button>
+        <FormInput label="Kategori" id="category"><input type="text" name="category" id="category" value={product.category} onChange={(e) => setProduct({...product, category: e.target.value})} className={inputClass} placeholder="Örn: İçecek"/></FormInput>
+        <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-indigo-700 transition-all duration-300 flex items-center justify-center gap-2"> <PlusCircle size={20} /> <span>Ürünü Ekle</span> </button>
     </form> </div> );
 };
-const Tabs = ({ activeTab, setActiveTab }) => {
-    const tabData = [ { id: 'dashboard', label: 'Gösterge Paneli', icon: LayoutDashboard }, { id: 'stock', label: 'Stok Listesi', icon: Package }, { id: 'history', label: 'Satış Geçmişi', icon: History } ];
-    return ( <div className="border-b border-gray-200 mb-4"> <nav className="-mb-px flex space-x-6" aria-label="Tabs">
-        {tabData.map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-200 ${activeTab === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>
-                <tab.icon size={16} /><span>{tab.label}</span>
-            </button>
-        ))}
-    </nav> </div> );
-};
+const Tabs = ({ activeTab, setActiveTab }) => { const tabData = [ { id: 'dashboard', label: 'Gösterge Paneli', icon: LayoutDashboard }, { id: 'stock', label: 'Stok Listesi', icon: Package }, { id: 'history', label: 'Satış Geçmişi', icon: History } ]; return ( <div className="border-b border-gray-200 mb-4"> <nav className="-mb-px flex space-x-6" aria-label="Tabs"> {tabData.map(tab => ( <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-200 ${activeTab === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}> <tab.icon size={16} /><span>{tab.label}</span> </button> ))} </nav> </div> ); };
 
-// GÜNCELLENDİ: Ciro ve grafik hesaplama mantığı düzeltildi
 const Dashboard = ({ products, sales }) => {
-    const stats = useMemo(() => {
-        const totalStockValue = products.reduce((sum, p) => sum + ((p.purchasePrice || 0) * (p.stock || 0)), 0);
-        
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
+    const [timeRange, setTimeRange] = useState('weekly');
+    const [selectedProduct, setSelectedProduct] = useState('');
 
+    const { totalStockValue, todaysRevenue, lowStockProducts, chartData, productChartData, totalUnitsSold } = useMemo(() => {
+        const calculateGroupedSales = (salesToFilter, groupBy) => {
+            const grouped = {};
+            salesToFilter.forEach(s => {
+                const saleDate = s.saleDate.toDate();
+                let key;
+                if (groupBy === 'hour') key = `${saleDate.getHours()}:00`;
+                else if (groupBy === 'day') key = saleDate.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' });
+                else if (groupBy === 'month') key = saleDate.toLocaleDateString('tr-TR', { month: 'short', year: '2-digit' });
+                if (!grouped[key]) grouped[key] = { Ciro: 0, Adet: 0 };
+                grouped[key].Ciro += s.salePrice || 0;
+                grouped[key].Adet += 1;
+            });
+            return Object.keys(grouped).map(key => ({ name: key, ...grouped[key] }));
+        };
+
+        const now = new Date();
+        let startDate;
+        let groupBy;
+
+        switch (timeRange) {
+            case 'daily': startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()); groupBy = 'hour'; break;
+            case 'weekly': startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6); groupBy = 'day'; break;
+            case 'monthly': startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29); groupBy = 'day'; break;
+            case 'yearly': startDate = new Date(now.getFullYear() - 1, now.getMonth() + 1, 1); groupBy = 'month'; break;
+            default: groupBy = 'month';
+        }
+
+        const generalSalesToFilter = sales.filter(s => s.saleDate && (timeRange === 'all' || s.saleDate.toDate() >= startDate));
+        const chartData = calculateGroupedSales(generalSalesToFilter, groupBy);
+
+        let productChartData = [];
+        let totalUnitsSold = 0;
+        if (selectedProduct) {
+            const productSales = sales.filter(s => s.barcode === selectedProduct);
+            totalUnitsSold = productSales.length;
+            const productSalesToFilter = productSales.filter(s => s.saleDate && (timeRange === 'all' || s.saleDate.toDate() >= startDate));
+            productChartData = calculateGroupedSales(productSalesToFilter, groupBy);
+        }
+
+        const totalStockValue = products.reduce((sum, p) => sum + ((p.purchasePrice || 0) * (p.stock || 0)), 0);
+        const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
         const todaysSales = sales.filter(s => s.saleDate && s.saleDate.toDate() >= todayStart);
         const todaysRevenue = todaysSales.reduce((sum, s) => sum + (s.salePrice || 0), 0);
-        
         const lowStockProducts = products.filter(p => p.stock <= 5).sort((a,b) => a.stock - b.stock);
 
-        const last7Days = Array.from({ length: 7 }, (_, i) => {
-            const d = new Date();
-            d.setDate(d.getDate() - i);
-            d.setHours(0,0,0,0);
-            return d;
-        }).reverse();
+        return { totalStockValue, todaysRevenue, lowStockProducts, chartData, productChartData, totalUnitsSold };
+    }, [products, sales, timeRange, selectedProduct]);
 
-        const weeklySalesData = last7Days.map(day => {
-            const dayString = day.toLocaleDateString('tr-TR', { weekday: 'short' });
-            
-            const salesOnDay = sales.filter(s => {
-                if (!s.saleDate) return false;
-                // Orijinal veriyi bozmamak için yeni bir tarih nesnesi oluştur
-                const saleDay = new Date(s.saleDate.toDate().getTime());
-                saleDay.setHours(0,0,0,0);
-                return saleDay.getTime() === day.getTime();
-            });
+    const timeRanges = [ { key: 'daily', label: 'Gün' }, { key: 'weekly', label: 'Hafta' }, { key: 'monthly', label: 'Ay' }, { key: 'yearly', label: 'Yıl' }, { key: 'all', label: 'Tümü' } ];
 
-            const total = salesOnDay.reduce((sum, s) => sum + (s.salePrice || 0), 0);
-            return { name: dayString, Ciro: total };
-        });
-
-        return { totalStockValue, todaysRevenue, lowStockProducts, weeklySalesData };
-    }, [products, sales]);
-
-    return (
-        <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <StatCard title="Toplam Ürün Çeşidi" value={products.length} icon={Package} />
-                <StatCard title="Toplam Stok Değeri" value={formatCurrency(stats.totalStockValue)} icon={DollarSign} />
-                <StatCard title="Bugünkü Ciro" value={formatCurrency(stats.todaysRevenue)} icon={TrendingUp} />
+    return ( <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <StatCard title="Toplam Ürün Çeşidi" value={products.length} icon={Package} /> <StatCard title="Toplam Stok Değeri" value={formatCurrency(totalStockValue)} icon={DollarSign} /> <StatCard title="Bugünkü Ciro" value={formatCurrency(todaysRevenue)} icon={TrendingUp} /> </div>
+        
+        <div className="bg-gray-50 p-4 rounded-lg">
+            <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
+                <h3 className="font-semibold">Genel Satış Grafiği (Ciro)</h3>
+                <div className="flex items-center rounded-lg bg-gray-200 p-0.5"> {timeRanges.map(range => ( <button key={range.key} onClick={() => setTimeRange(range.key)} className={`px-2 py-0.5 text-xs font-semibold rounded-md transition-colors ${timeRange === range.key ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-black'}`}> {range.label} </button> ))} </div>
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-gray-50 p-4 rounded-lg">
-                    <h3 className="font-semibold mb-3 flex items-center gap-2"><PackageSearch size={18}/> Stoğu Azalan Ürünler</h3>
-                    <div className="space-y-2 max-h-60 overflow-y-auto">
-                        {stats.lowStockProducts.length > 0 ? stats.lowStockProducts.map(p => (
-                            <div key={p.id} className="flex justify-between items-center text-sm">
-                                <span className="truncate">{p.name}</span>
-                                <span className="font-bold text-red-600">{p.stock} adet</span>
-                            </div>
-                        )) : <p className="text-sm text-gray-500">Kritik stokta ürün yok.</p>}
-                    </div>
-                </div>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                    <h3 className="font-semibold mb-3">Son 7 Günlük Satış Grafiği</h3>
-                    <div style={{ width: '100%', height: 240 }}>
-                        <ResponsiveContainer>
-                            <BarChart data={stats.weeklySalesData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis dataKey="name" fontSize={12} />
-                                <YAxis fontSize={12} tickFormatter={(value) => `${value}₺`} />
-                                <Tooltip contentStyle={{fontSize: '12px', padding: '4px 8px'}} formatter={(value) => [formatCurrency(value), 'Ciro']}/>
-                                <Bar dataKey="Ciro" fill="#4f46e5" />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
-            </div>
+            <div style={{ width: '100%', height: 200 }}> <ResponsiveContainer> <BarChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}> <CartesianGrid strokeDasharray="3 3" /> <XAxis dataKey="name" fontSize={12} /> <YAxis fontSize={12} tickFormatter={(value) => formatCurrency(value)} /> <Tooltip contentStyle={{fontSize: '12px', padding: '4px 8px'}} formatter={(value) => [formatCurrency(value), 'Ciro']}/> <Bar dataKey="Ciro" fill="#4f46e5" /> </BarChart> </ResponsiveContainer> </div>
         </div>
-    );
+
+        <div className="bg-gray-50 p-4 rounded-lg">
+            <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
+                <h3 className="font-semibold">Ürün Performansı (Satış Adedi)</h3>
+                <select value={selectedProduct} onChange={(e) => setSelectedProduct(e.target.value)} className="text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                    <option value="">Bir ürün seçin...</option>
+                    {products.map(p => <option key={p.id} value={p.barcode}>{p.name}</option>)}
+                </select>
+            </div>
+            {selectedProduct && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="md:col-span-2" style={{ width: '100%', height: 200 }}>
+                        <ResponsiveContainer> <BarChart data={productChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}> <CartesianGrid strokeDasharray="3 3" /> <XAxis dataKey="name" fontSize={12} /> <YAxis fontSize={12} allowDecimals={false} /> <Tooltip contentStyle={{fontSize: '12px', padding: '4px 8px'}} formatter={(value) => [value, 'Adet']}/> <Bar dataKey="Adet" fill="#10b981" /> </BarChart> </ResponsiveContainer>
+                    </div>
+                    <StatCard title="Toplam Satış" value={`${totalUnitsSold} adet`} icon={BarChart3} />
+                </div>
+            )}
+        </div>
+        
+        <div className="bg-gray-50 p-4 rounded-lg"> <h3 className="font-semibold mb-3 flex items-center gap-2"><PackageSearch size={18}/> Stoğu Azalan Ürünler</h3> <div className="space-y-2 max-h-60 overflow-y-auto"> {lowStockProducts.length > 0 ? lowStockProducts.map(p => ( <div key={p.id} className="flex justify-between items-center text-sm"> <span className="truncate">{p.name}</span> <span className="font-bold text-red-600">{p.stock} adet</span> </div> )) : <p className="text-sm text-gray-500">Kritik stokta ürün yok.</p>} </div> </div>
+    </div> );
 };
-const StatCard = ({ title, value, icon: Icon }) => (
-    <div className="bg-gray-50 p-4 rounded-lg flex items-center gap-4">
-        <div className="bg-indigo-100 text-indigo-600 p-3 rounded-full">
-            <Icon size={24} />
-        </div>
-        <div>
-            <p className="text-sm text-gray-500">{title}</p>
-            <p className="text-2xl font-bold text-gray-800">{value}</p>
-        </div>
-    </div>
-);
-const ProductList = ({ products, loading, onUpdate, onDelete, searchTerm, setSearchTerm }) => {
+
+const StatCard = ({ title, value, icon: Icon }) => ( <div className="bg-gray-50 p-4 rounded-lg flex items-center gap-4"> <div className="bg-indigo-100 text-indigo-600 p-3 rounded-full"> <Icon size={24} /> </div> <div> <p className="text-sm text-gray-500">{title}</p> <p className="text-2xl font-bold text-gray-800">{value}</p> </div> </div> );
+
+const ProductList = ({ products, loading, onUpdate, onDelete, onAddStock, searchTerm, setSearchTerm }) => {
     const [editingProduct, setEditingProduct] = useState(null);
     const handleUpdateSubmit = (e) => { e.preventDefault(); onUpdate(editingProduct); setEditingProduct(null); };
-
+    
     if (loading) return <LoadingSpinner />;
     if (products.length === 0 && !searchTerm) return <EmptyState icon={<Package size={40}/>} message="Henüz ürün eklenmemiş." />;
-
     return ( <div className="space-y-3">
         <div className="relative"> <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} /> <input type="text" placeholder="Ürün adı veya barkod ile ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="input-style pl-10" /> </div>
         {products.length === 0 && searchTerm && ( <EmptyState icon={<Search size={40}/>} message="Arama Sonucu Bulunamadı" /> )}
         <div className="max-h-[55vh] overflow-y-auto pr-2 space-y-2"> {products.map(p => (
             <div key={p.id} className="flex items-center p-3 rounded-lg bg-gray-50 hover:bg-gray-100">
-                <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 truncate flex items-center">{p.name} {p.stock <= 5 && <AlertTriangle size={14} className="ml-2 text-red-500"/>}</p>
-                    <p className="text-xs text-gray-500">Barkod: {p.barcode} | Kategori: {p.category || 'Yok'}</p>
-                    <p className="text-xs text-green-700 font-medium">Satış: {formatCurrency(p.salePrice)}</p>
-                </div>
+                <div className="flex-1 min-w-0"> <p className="font-semibold text-gray-800 truncate flex items-center">{p.name} {p.stock <= 5 && <AlertTriangle size={14} className="ml-2 text-red-500"/>}</p> <p className="text-xs text-gray-500">Barkod: {p.barcode} | Kategori: {p.category || 'Yok'}</p> <p className="text-xs text-green-700 font-medium">Satış: {formatCurrency(p.salePrice)}</p> </div>
                 <div className="text-right mx-4 w-16"> <p className={`font-bold text-lg ${p.stock > 10 ? 'text-green-600' : p.stock > 5 ? 'text-yellow-600' : 'text-red-600'}`}>{p.stock}</p> <p className="text-xs text-gray-500">adet</p> </div>
-                <div className="flex space-x-1"> <button onClick={() => setEditingProduct(p)} className="p-2 text-blue-600 hover:bg-blue-100 rounded-md"><Edit size={16} /></button> <button onClick={() => toast(`"${p.name}" ürününü silmek istediğinize emin misiniz?`, { action: { label: 'Evet, Sil', onClick: () => onDelete(p.id, p.name) }, cancel: { label: 'İptal' } })} className="p-2 text-red-600 hover:bg-red-100 rounded-md"><Trash2 size={16} /></button> </div>
+                <div className="flex space-x-1">
+                    <button onClick={() => {
+                        toast.prompt('Ne kadar stok eklenecek?', {
+                            placeholder: 'Örn: 12',
+                            onAccept: (value) => {
+                                const amount = parseInt(value);
+                                if (amount > 0) { onAddStock(p.id, amount); } else { toast.error("Lütfen geçerli bir miktar girin."); }
+                            },
+                        });
+                    }} className="p-2 text-green-600 hover:bg-green-100 rounded-md" title="Stok Ekle"><PlusSquare size={16} /></button>
+                    <button onClick={() => setEditingProduct(p)} className="p-2 text-blue-600 hover:bg-blue-100 rounded-md" title="Düzenle"><Edit size={16} /></button>
+                    <button onClick={() => toast(`"${p.name}" ürününü silmek istediğinize emin misiniz?`, { action: { label: 'Evet, Sil', onClick: () => onDelete(p.id, p.name) }, cancel: { label: 'İptal' } })} className="p-2 text-red-600 hover:bg-red-100 rounded-md" title="Sil"><Trash2 size={16} /></button>
+                </div>
             </div>
         ))} </div>
         {editingProduct && ( <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setEditingProduct(null)}> <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
             <h3 className="text-xl font-semibold mb-4">Ürünü Düzenle</h3>
-            <form onSubmit={handleUpdateSubmit} className="space-y-4">
-                <input value={editingProduct.name} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} placeholder="Ürün Adı" className="input-style" />
-                <input type="number" value={editingProduct.stock} onChange={e => setEditingProduct({...editingProduct, stock: parseInt(e.target.value)})} placeholder="Stok" className="input-style" />
-                <div className="grid grid-cols-2 gap-4">
-                    <input type="number" value={editingProduct.purchasePrice} onChange={e => setEditingProduct({...editingProduct, purchasePrice: parseFloat(e.target.value)})} placeholder="Alış Fiyatı (₺)" className="input-style" />
-                    <input type="number" value={editingProduct.salePrice} onChange={e => setEditingProduct({...editingProduct, salePrice: parseFloat(e.target.value)})} placeholder="Satış Fiyatı (₺)" className="input-style" />
+            <form onSubmit={handleUpdateSubmit} className="space-y-3">
+                <FormInput label="Ürün Adı" id="edit-name"><input value={editingProduct.name} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="input-style-inner" /></FormInput>
+                <FormInput label="Stok Adedi" id="edit-stock"><input type="number" value={editingProduct.stock} onChange={e => setEditingProduct({...editingProduct, stock: parseInt(e.target.value)})} className="input-style-inner" /></FormInput>
+                <div className="grid grid-cols-2 gap-3">
+                    <FormInput label="Alış Fiyatı (₺)" id="edit-purchasePrice"><input type="number" value={editingProduct.purchasePrice} onChange={e => setEditingProduct({...editingProduct, purchasePrice: parseFloat(e.target.value)})} className="input-style-inner" /></FormInput>
+                    <FormInput label="Satış Fiyatı (₺)" id="edit-salePrice"><input type="number" value={editingProduct.salePrice} onChange={e => setEditingProduct({...editingProduct, salePrice: parseFloat(e.target.value)})} className="input-style-inner" /></FormInput>
                 </div>
-                <input value={editingProduct.category || ''} onChange={e => setEditingProduct({...editingProduct, category: e.target.value})} placeholder="Kategori" className="input-style" />
+                <FormInput label="Kategori" id="edit-category"><input value={editingProduct.category || ''} onChange={e => setEditingProduct({...editingProduct, category: e.target.value})} className="input-style-inner" /></FormInput>
                 <div className="flex justify-end space-x-3 mt-2"> <button type="button" onClick={() => setEditingProduct(null)} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">İptal</button> <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Kaydet</button> </div>
             </form>
         </div> </div> )}
