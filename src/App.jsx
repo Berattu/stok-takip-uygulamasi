@@ -3,9 +3,9 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, collection, onSnapshot, increment, addDoc, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { Toaster, toast } from 'sonner';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { Html5Qrcode } from 'html5-qrcode';
-import { LogIn, UserPlus, LogOut, ShoppingCart, Package, History, Loader2, Search, Edit, Trash2, AlertTriangle, PlusCircle, Building, LayoutDashboard, DollarSign, PackageSearch, TrendingUp, Camera, X, PlusSquare, BarChart3 } from 'lucide-react';
+import { LogIn, UserPlus, LogOut, ShoppingCart, Package, History, Loader2, Search, Edit, Trash2, AlertTriangle, PlusCircle, Building, LayoutDashboard, DollarSign, PackageSearch, TrendingUp, Camera, X, PlusSquare, BarChart3, PieChart as PieChartIcon, Calendar } from 'lucide-react';
 
 const firebaseConfig = {
   apiKey: "AIzaSyAb0VoKLRJKKgst9DVC_cb2ZU5wchfdTIM",
@@ -334,10 +334,38 @@ const AddProductSection = ({ onAdd, products }) => {
 const Tabs = ({ activeTab, setActiveTab }) => { const tabData = [ { id: 'dashboard', label: 'Gösterge Paneli', icon: LayoutDashboard }, { id: 'stock', label: 'Stok Listesi', icon: Package }, { id: 'history', label: 'Satış Geçmişi', icon: History } ]; return ( <div className="border-b border-gray-200 mb-4"> <nav className="-mb-px flex space-x-6" aria-label="Tabs"> {tabData.map(tab => ( <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-200 ${activeTab === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}> <tab.icon size={16} /><span>{tab.label}</span> </button> ))} </nav> </div> ); };
 
 const Dashboard = ({ products, sales }) => {
-    const [timeRange, setTimeRange] = useState('weekly');
+    const [barChartTimeRange, setBarChartTimeRange] = useState('weekly');
+    const [pieChartTimeRange, setPieChartTimeRange] = useState('weekly');
     const [selectedProduct, setSelectedProduct] = useState('');
 
-    const { totalStockValue, todaysRevenue, lowStockProducts, chartData, productChartData, totalUnitsSold } = useMemo(() => {
+    const { totalStockValue, todaysRevenue, lowStockProducts, barChartData, productChartData, totalUnitsSold, pieChartData, monthlyRevenueData } = useMemo(() => {
+        const now = new Date();
+        
+        // General Stats
+        const totalStockValue = products.reduce((sum, p) => sum + ((p.purchasePrice || 0) * (p.stock || 0)), 0);
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const todaysSales = sales.filter(s => s.saleDate && s.saleDate.toDate() >= todayStart);
+        const todaysRevenue = todaysSales.reduce((sum, s) => sum + (s.salePrice || 0), 0);
+        const lowStockProducts = products.filter(p => p.stock <= 5).sort((a,b) => a.stock - b.stock);
+
+        // Monthly Revenue Calculation
+        const monthlyRevenuesForSort = {};
+        sales.forEach(s => {
+            if (s.saleDate) {
+                const saleDate = s.saleDate.toDate();
+                const monthYearKey = `${saleDate.getFullYear()}-${String(saleDate.getMonth() + 1).padStart(2, '0')}`;
+                if (!monthlyRevenuesForSort[monthYearKey]) monthlyRevenuesForSort[monthYearKey] = 0;
+                monthlyRevenuesForSort[monthYearKey] += s.salePrice || 0;
+            }
+        });
+        const sortedMonths = Object.keys(monthlyRevenuesForSort).sort().reverse();
+        const monthlyRevenueData = sortedMonths.slice(0, 12).map(key => {
+            const [year, month] = key.split('-');
+            const monthName = new Date(year, month - 1).toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' });
+            return { name: monthName, revenue: monthlyRevenuesForSort[key] };
+        });
+
+        // Grouping Logic
         const calculateGroupedSales = (salesToFilter, groupBy) => {
             const grouped = {};
             salesToFilter.forEach(s => {
@@ -353,50 +381,80 @@ const Dashboard = ({ products, sales }) => {
             return Object.keys(grouped).map(key => ({ name: key, ...grouped[key] }));
         };
 
-        const now = new Date();
-        let startDate;
-        let groupBy;
-
-        switch (timeRange) {
-            case 'daily': startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()); groupBy = 'hour'; break;
-            case 'weekly': startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6); groupBy = 'day'; break;
-            case 'monthly': startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29); groupBy = 'day'; break;
-            case 'yearly': startDate = new Date(now.getFullYear() - 1, now.getMonth() + 1, 1); groupBy = 'month'; break;
-            default: groupBy = 'month';
+        let barStartDate, barGroupBy;
+        switch (barChartTimeRange) {
+            case 'daily': barStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()); barGroupBy = 'hour'; break;
+            case 'monthly': barStartDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()); barGroupBy = 'day'; break;
+            case 'yearly': barStartDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()); barGroupBy = 'month'; break;
+            default: barStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6); barGroupBy = 'day';
         }
-
-        const generalSalesToFilter = sales.filter(s => s.saleDate && (timeRange === 'all' || s.saleDate.toDate() >= startDate));
-        const chartData = calculateGroupedSales(generalSalesToFilter, groupBy);
-
+        const generalSalesToFilter = sales.filter(s => s.saleDate && s.saleDate.toDate() >= barStartDate);
+        const barChartData = calculateGroupedSales(generalSalesToFilter, barGroupBy);
+        
         let productChartData = [];
         let totalUnitsSold = 0;
         if (selectedProduct) {
             const productSales = sales.filter(s => s.barcode === selectedProduct);
             totalUnitsSold = productSales.length;
-            const productSalesToFilter = productSales.filter(s => s.saleDate && (timeRange === 'all' || s.saleDate.toDate() >= startDate));
-            productChartData = calculateGroupedSales(productSalesToFilter, groupBy);
+            const productSalesToFilter = productSales.filter(s => s.saleDate && s.saleDate.toDate() >= barStartDate);
+            productChartData = calculateGroupedSales(productSalesToFilter, barGroupBy);
         }
 
-        const totalStockValue = products.reduce((sum, p) => sum + ((p.purchasePrice || 0) * (p.stock || 0)), 0);
-        const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-        const todaysSales = sales.filter(s => s.saleDate && s.saleDate.toDate() >= todayStart);
-        const todaysRevenue = todaysSales.reduce((sum, s) => sum + (s.salePrice || 0), 0);
-        const lowStockProducts = products.filter(p => p.stock <= 5).sort((a,b) => a.stock - b.stock);
+        let pieStartDate;
+        switch (pieChartTimeRange) {
+            case 'daily': pieStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()); break;
+            case 'monthly': pieStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29); break;
+            default: pieStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+        }
+        const pieSalesToFilter = sales.filter(s => s.saleDate && s.saleDate.toDate() >= pieStartDate);
+        const revenueByProduct = {};
+        pieSalesToFilter.forEach(s => {
+            if (!revenueByProduct[s.productName]) revenueByProduct[s.productName] = 0;
+            revenueByProduct[s.productName] += s.salePrice || 0;
+        });
+        const pieChartData = Object.keys(revenueByProduct).map(name => ({ name, value: revenueByProduct[name] })).sort((a,b) => b.value - a.value);
 
-        return { totalStockValue, todaysRevenue, lowStockProducts, chartData, productChartData, totalUnitsSold };
-    }, [products, sales, timeRange, selectedProduct]);
-
-    const timeRanges = [ { key: 'daily', label: 'Gün' }, { key: 'weekly', label: 'Hafta' }, { key: 'monthly', label: 'Ay' }, { key: 'yearly', label: 'Yıl' }, { key: 'all', label: 'Tümü' } ];
+        return { totalStockValue, todaysRevenue, lowStockProducts, barChartData, productChartData, totalUnitsSold, pieChartData, monthlyRevenueData };
+    }, [products, sales, barChartTimeRange, selectedProduct, pieChartTimeRange]);
+    
+    const timeRanges = [ { key: 'daily', label: 'Gün' }, { key: 'weekly', label: 'Hafta' }, { key: 'monthly', label: 'Ay' }, { key: 'yearly', label: 'Yıl' } ];
+    const pieTimeRanges = [ { key: 'daily', label: 'Günlük' }, { key: 'weekly', label: 'Haftalık' }, { key: 'monthly', label: 'Aylık' }];
+    const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6'];
 
     return ( <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <StatCard title="Toplam Ürün Çeşidi" value={products.length} icon={Package} /> <StatCard title="Toplam Stok Değeri" value={formatCurrency(totalStockValue)} icon={DollarSign} /> <StatCard title="Bugünkü Ciro" value={formatCurrency(todaysRevenue)} icon={TrendingUp} /> </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> 
+            <StatCard title="Bugünkü Ciro" value={formatCurrency(todaysRevenue)} icon={TrendingUp} />
+            <StatCard title="Toplam Stok Değeri" value={formatCurrency(totalStockValue)} icon={DollarSign} />
+            <StatCard title="Toplam Ürün Çeşidi" value={products.length} icon={Package} />
+        </div>
         
-        <div className="bg-gray-50 p-4 rounded-lg">
-            <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
-                <h3 className="font-semibold">Genel Satış Grafiği (Ciro)</h3>
-                <div className="flex items-center rounded-lg bg-gray-200 p-0.5"> {timeRanges.map(range => ( <button key={range.key} onClick={() => setTimeRange(range.key)} className={`px-2 py-0.5 text-xs font-semibold rounded-md transition-colors ${timeRange === range.key ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-black'}`}> {range.label} </button> ))} </div>
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            <div className="lg:col-span-3 bg-gray-50 p-4 rounded-lg">
+                <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
+                    <h3 className="font-semibold">Genel Satış Grafiği (Ciro)</h3>
+                    <div className="flex items-center rounded-lg bg-gray-200 p-0.5"> {timeRanges.map(range => ( <button key={range.key} onClick={() => setBarChartTimeRange(range.key)} className={`px-2 py-0.5 text-xs font-semibold rounded-md transition-colors ${barChartTimeRange === range.key ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-black'}`}> {range.label} </button> ))} </div>
+                </div>
+                <div style={{ width: '100%', height: 240 }}> <ResponsiveContainer> <BarChart data={barChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}> <CartesianGrid strokeDasharray="3 3" /> <XAxis dataKey="name" fontSize={12} /> <YAxis fontSize={12} tickFormatter={(value) => formatCurrency(value)} /> <Tooltip contentStyle={{fontSize: '12px', padding: '4px 8px'}} formatter={(value) => [formatCurrency(value), 'Ciro']}/> <Bar dataKey="Ciro" fill="#4f46e5" /> </BarChart> </ResponsiveContainer> </div>
             </div>
-            <div style={{ width: '100%', height: 200 }}> <ResponsiveContainer> <BarChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}> <CartesianGrid strokeDasharray="3 3" /> <XAxis dataKey="name" fontSize={12} /> <YAxis fontSize={12} tickFormatter={(value) => formatCurrency(value)} /> <Tooltip contentStyle={{fontSize: '12px', padding: '4px 8px'}} formatter={(value) => [formatCurrency(value), 'Ciro']}/> <Bar dataKey="Ciro" fill="#4f46e5" /> </BarChart> </ResponsiveContainer> </div>
+            <div className="lg:col-span-2 bg-gray-50 p-4 rounded-lg">
+                <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
+                    <h3 className="font-semibold">Ciro Dağılımı</h3>
+                    <div className="flex items-center rounded-lg bg-gray-200 p-0.5"> {pieTimeRanges.map(range => ( <button key={range.key} onClick={() => setPieChartTimeRange(range.key)} className={`px-2 py-0.5 text-xs font-semibold rounded-md transition-colors ${pieChartTimeRange === range.key ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-black'}`}> {range.label} </button> ))} </div>
+                </div>
+                <div style={{ width: '100%', height: 240 }}>
+                    {pieChartData.length > 0 ? (
+                        <ResponsiveContainer>
+                            <PieChart>
+                                <Pie data={pieChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} labelLine={false} label={({ cx, cy, midAngle, innerRadius, outerRadius, percent, index }) => { const RADIAN = Math.PI / 180; const radius = innerRadius + (outerRadius - innerRadius) * 1.2; const x = cx + radius * Math.cos(-midAngle * RADIAN); const y = cy + radius * Math.sin(-midAngle * RADIAN); return ( <text x={x} y={y} fill="black" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize={12}> {`${(percent * 100).toFixed(0)}%`} </text> ); }}>
+                                    {pieChartData.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}
+                                </Pie>
+                                <Tooltip formatter={(value, name) => [formatCurrency(value), name]} />
+                                <Legend iconSize={10} wrapperStyle={{fontSize: '12px'}}/>
+                            </PieChart>
+                        </ResponsiveContainer>
+                    ) : <div className="flex items-center justify-center h-full text-sm text-gray-500">Seçili aralıkta satış verisi yok.</div>}
+                </div>
+            </div>
         </div>
 
         <div className="bg-gray-50 p-4 rounded-lg">
@@ -417,7 +475,10 @@ const Dashboard = ({ products, sales }) => {
             )}
         </div>
         
-        <div className="bg-gray-50 p-4 rounded-lg"> <h3 className="font-semibold mb-3 flex items-center gap-2"><PackageSearch size={18}/> Stoğu Azalan Ürünler</h3> <div className="space-y-2 max-h-60 overflow-y-auto"> {lowStockProducts.length > 0 ? lowStockProducts.map(p => ( <div key={p.id} className="flex justify-between items-center text-sm"> <span className="truncate">{p.name}</span> <span className="font-bold text-red-600">{p.stock} adet</span> </div> )) : <p className="text-sm text-gray-500">Kritik stokta ürün yok.</p>} </div> </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-gray-50 p-4 rounded-lg"> <h3 className="font-semibold mb-3 flex items-center gap-2"><PackageSearch size={18}/> Stoğu Azalan Ürünler</h3> <div className="space-y-2 max-h-60 overflow-y-auto"> {lowStockProducts.length > 0 ? lowStockProducts.map(p => ( <div key={p.id} className="flex justify-between items-center text-sm"> <span className="truncate">{p.name}</span> <span className="font-bold text-red-600">{p.stock} adet</span> </div> )) : <p className="text-sm text-gray-500">Kritik stokta ürün yok.</p>} </div> </div>
+            <div className="bg-gray-50 p-4 rounded-lg"> <h3 className="font-semibold mb-3 flex items-center gap-2"><Calendar size={18}/> Geçmiş Aylık Cirolar</h3> <div className="space-y-2 max-h-60 overflow-y-auto"> {monthlyRevenueData.length > 0 ? monthlyRevenueData.map(month => ( <div key={month.name} className="flex justify-between items-center text-sm"> <span className="text-gray-600">{month.name}</span> <span className="font-bold text-green-700">{formatCurrency(month.revenue)}</span> </div> )) : <p className="text-sm text-gray-500">Geçmiş aylara ait satış verisi yok.</p>} </div> </div>
+        </div>
     </div> );
 };
 
