@@ -198,6 +198,7 @@ const StockApp = ({ user }) => {
                     <div className="lg:col-span-2 bg-white p-4 sm:p-6 rounded-2xl shadow-sm">
                         <Tabs activeTab={activeTab} setActiveTab={setActiveTab} />
                         {activeTab === 'dashboard' && <Dashboard products={products} sales={sales} />}
+                        {activeTab === 'statistics' && <StatisticsPage products={products} sales={sales} />}
                         {activeTab === 'stock' && <ProductList products={filteredProducts} loading={loading.products} onUpdate={handleAddOrUpdateProduct} onDelete={handleDeleteProduct} onAddStock={handleUpdateStock} searchTerm={searchTerm} setSearchTerm={setSearchTerm} />}
                         {activeTab === 'history' && <SalesHistory sales={sales} loading={loading.sales} />}
                     </div>
@@ -302,6 +303,8 @@ const FormInput = ({ label, id, required, children }) => (
 
 const AddProductSection = ({ onAdd, products }) => {
     const [product, setProduct] = useState({ name: '', barcode: '', stock: '', purchasePrice: '', salePrice: '', category: '' });
+    const [showScanner, setShowScanner] = useState(false);
+    
     const handleSubmit = async (e) => {
         e.preventDefault();
         const { name, barcode, stock, purchasePrice, salePrice } = product;
@@ -317,11 +320,23 @@ const AddProductSection = ({ onAdd, products }) => {
     };
     const resetForm = () => setProduct({ name: '', barcode: '', stock: '', purchasePrice: '', salePrice: '', category: '' });
     
+    const onBarcodeScan = (decodedText) => {
+        setProduct(prev => ({ ...prev, barcode: decodedText }));
+        setShowScanner(false);
+    };
+
     const inputClass = "block w-full border-0 bg-transparent p-0 text-gray-900 placeholder:text-gray-400 focus:ring-0 sm:text-sm";
 
     return ( <div className="bg-white p-6 rounded-2xl shadow-sm"> <h2 className="text-xl font-semibold mb-4 flex items-center gap-2"><PlusCircle size={22} /> Yeni Ürün Ekle</h2> <form onSubmit={handleSubmit} className="space-y-3">
         <FormInput label="Ürün Adı" id="name" required><input type="text" name="name" id="name" value={product.name} onChange={(e) => setProduct({...product, name: e.target.value})} className={inputClass} placeholder="Örn: Kutu Süt"/></FormInput>
-        <FormInput label="Barkod Numarası" id="barcode" required><input type="text" name="barcode" id="barcode" value={product.barcode} onChange={(e) => setProduct({...product, barcode: e.target.value})} className={inputClass} placeholder="Okutun veya manuel girin"/></FormInput>
+        <FormInput label="Barkod Numarası" id="barcode" required>
+            <div className="flex items-center gap-2">
+                <input type="text" name="barcode" id="barcode" value={product.barcode} onChange={(e) => setProduct({...product, barcode: e.target.value})} className={inputClass} placeholder="Okutun veya manuel girin"/>
+                <button type="button" onClick={() => setShowScanner(true)} className="p-2 text-gray-500 hover:text-indigo-600" title="Kamera ile Tara">
+                    <Camera size={20} />
+                </button>
+            </div>
+        </FormInput>
         <FormInput label="Stok Adedi" id="stock" required><input type="number" name="stock" id="stock" value={product.stock} onChange={(e) => setProduct({...product, stock: e.target.value})} className={inputClass} placeholder="0" min="0"/></FormInput>
         <div className="grid grid-cols-2 gap-3">
             <FormInput label="Alış Fiyatı (₺)" id="purchasePrice" required><input type="number" name="purchasePrice" id="purchasePrice" value={product.purchasePrice} onChange={(e) => setProduct({...product, purchasePrice: e.target.value})} className={inputClass} placeholder="0.00" min="0" step="0.01"/></FormInput>
@@ -329,26 +344,21 @@ const AddProductSection = ({ onAdd, products }) => {
         </div>
         <FormInput label="Kategori" id="category"><input type="text" name="category" id="category" value={product.category} onChange={(e) => setProduct({...product, category: e.target.value})} className={inputClass} placeholder="Örn: İçecek"/></FormInput>
         <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-indigo-700 transition-all duration-300 flex items-center justify-center gap-2"> <PlusCircle size={20} /> <span>Ürünü Ekle</span> </button>
-    </form> </div> );
+    </form>
+    {showScanner && <CameraScanner onScanSuccess={onBarcodeScan} onClose={() => setShowScanner(false)} />}
+    </div> );
 };
-const Tabs = ({ activeTab, setActiveTab }) => { const tabData = [ { id: 'dashboard', label: 'Gösterge Paneli', icon: LayoutDashboard }, { id: 'stock', label: 'Stok Listesi', icon: Package }, { id: 'history', label: 'Satış Geçmişi', icon: History } ]; return ( <div className="border-b border-gray-200 mb-4"> <nav className="-mb-px flex space-x-6" aria-label="Tabs"> {tabData.map(tab => ( <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-200 ${activeTab === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}> <tab.icon size={16} /><span>{tab.label}</span> </button> ))} </nav> </div> ); };
+const Tabs = ({ activeTab, setActiveTab }) => { const tabData = [ { id: 'dashboard', label: 'Gösterge Paneli', icon: LayoutDashboard }, { id: 'statistics', label: 'İstatistikler', icon: BarChart3 }, { id: 'stock', label: 'Stok Listesi', icon: Package }, { id: 'history', label: 'Satış Geçmişi', icon: History } ]; return ( <div className="border-b border-gray-200 mb-4"> <nav className="-mb-px flex space-x-6" aria-label="Tabs"> {tabData.map(tab => ( <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-200 ${activeTab === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}> <tab.icon size={16} /><span>{tab.label}</span> </button> ))} </nav> </div> ); };
 
 const Dashboard = ({ products, sales }) => {
-    const [barChartTimeRange, setBarChartTimeRange] = useState('weekly');
-    const [pieChartTimeRange, setPieChartTimeRange] = useState('weekly');
-    const [selectedProduct, setSelectedProduct] = useState('');
-
-    const { totalStockValue, todaysRevenue, lowStockProducts, barChartData, productChartData, totalUnitsSold, pieChartData, monthlyRevenueData } = useMemo(() => {
+    const { totalStockValue, todaysRevenue, lowStockProducts, monthlyRevenueData } = useMemo(() => {
         const now = new Date();
-        
-        // General Stats
         const totalStockValue = products.reduce((sum, p) => sum + ((p.purchasePrice || 0) * (p.stock || 0)), 0);
         const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const todaysSales = sales.filter(s => s.saleDate && s.saleDate.toDate() >= todayStart);
         const todaysRevenue = todaysSales.reduce((sum, s) => sum + (s.salePrice || 0), 0);
         const lowStockProducts = products.filter(p => p.stock <= 5).sort((a,b) => a.stock - b.stock);
 
-        // Monthly Revenue Calculation
         const monthlyRevenuesForSort = {};
         sales.forEach(s => {
             if (s.saleDate) {
@@ -365,7 +375,29 @@ const Dashboard = ({ products, sales }) => {
             return { name: monthName, revenue: monthlyRevenuesForSort[key] };
         });
 
-        // Grouping Logic
+        return { totalStockValue, todaysRevenue, lowStockProducts, monthlyRevenueData };
+    }, [products, sales]);
+
+    return ( <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> 
+            <StatCard title="Bugünkü Ciro" value={formatCurrency(todaysRevenue)} icon={TrendingUp} />
+            <StatCard title="Toplam Stok Değeri" value={formatCurrency(totalStockValue)} icon={DollarSign} />
+            <StatCard title="Toplam Ürün Çeşidi" value={products.length} icon={Package} />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-gray-50 p-4 rounded-lg"> <h3 className="font-semibold mb-3 flex items-center gap-2"><PackageSearch size={18}/> Stoğu Azalan Ürünler</h3> <div className="space-y-2 max-h-60 overflow-y-auto"> {lowStockProducts.length > 0 ? lowStockProducts.map(p => ( <div key={p.id} className="flex justify-between items-center text-sm"> <span className="truncate">{p.name}</span> <span className="font-bold text-red-600">{p.stock} adet</span> </div> )) : <p className="text-sm text-gray-500">Kritik stokta ürün yok.</p>} </div> </div>
+            <div className="bg-gray-50 p-4 rounded-lg"> <h3 className="font-semibold mb-3 flex items-center gap-2"><Calendar size={18}/> Geçmiş Aylık Cirolar</h3> <div className="space-y-2 max-h-60 overflow-y-auto"> {monthlyRevenueData.length > 0 ? monthlyRevenueData.map(month => ( <div key={month.name} className="flex justify-between items-center text-sm"> <span className="text-gray-600">{month.name}</span> <span className="font-bold text-green-700">{formatCurrency(month.revenue)}</span> </div> )) : <p className="text-sm text-gray-500">Geçmiş aylara ait satış verisi yok.</p>} </div> </div>
+        </div>
+    </div> );
+};
+
+const StatisticsPage = ({ products, sales }) => {
+    const [barChartTimeRange, setBarChartTimeRange] = useState('weekly');
+    const [pieChartTimeRange, setPieChartTimeRange] = useState('weekly');
+    const [selectedProduct, setSelectedProduct] = useState('');
+
+    const { productChartData, totalUnitsSold, pieChartData } = useMemo(() => {
+        const now = new Date();
         const calculateGroupedSales = (salesToFilter, groupBy) => {
             const grouped = {};
             salesToFilter.forEach(s => {
@@ -388,8 +420,6 @@ const Dashboard = ({ products, sales }) => {
             case 'yearly': barStartDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()); barGroupBy = 'month'; break;
             default: barStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6); barGroupBy = 'day';
         }
-        const generalSalesToFilter = sales.filter(s => s.saleDate && s.saleDate.toDate() >= barStartDate);
-        const barChartData = calculateGroupedSales(generalSalesToFilter, barGroupBy);
         
         let productChartData = [];
         let totalUnitsSold = 0;
@@ -414,45 +444,40 @@ const Dashboard = ({ products, sales }) => {
         });
         const pieChartData = Object.keys(revenueByProduct).map(name => ({ name, value: revenueByProduct[name] })).sort((a,b) => b.value - a.value);
 
-        return { totalStockValue, todaysRevenue, lowStockProducts, barChartData, productChartData, totalUnitsSold, pieChartData, monthlyRevenueData };
-    }, [products, sales, barChartTimeRange, selectedProduct, pieChartTimeRange]);
+        return { productChartData, totalUnitsSold, pieChartData };
+    }, [sales, barChartTimeRange, selectedProduct, pieChartTimeRange]);
     
     const timeRanges = [ { key: 'daily', label: 'Gün' }, { key: 'weekly', label: 'Hafta' }, { key: 'monthly', label: 'Ay' }, { key: 'yearly', label: 'Yıl' } ];
     const pieTimeRanges = [ { key: 'daily', label: 'Günlük' }, { key: 'weekly', label: 'Haftalık' }, { key: 'monthly', label: 'Aylık' }];
-    const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6'];
+    const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6', '#d946ef', '#64748b'];
 
     return ( <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> 
-            <StatCard title="Bugünkü Ciro" value={formatCurrency(todaysRevenue)} icon={TrendingUp} />
-            <StatCard title="Toplam Stok Değeri" value={formatCurrency(totalStockValue)} icon={DollarSign} />
-            <StatCard title="Toplam Ürün Çeşidi" value={products.length} icon={Package} />
-        </div>
-        
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-            <div className="lg:col-span-3 bg-gray-50 p-4 rounded-lg">
-                <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
-                    <h3 className="font-semibold">Genel Satış Grafiği (Ciro)</h3>
-                    <div className="flex items-center rounded-lg bg-gray-200 p-0.5"> {timeRanges.map(range => ( <button key={range.key} onClick={() => setBarChartTimeRange(range.key)} className={`px-2 py-0.5 text-xs font-semibold rounded-md transition-colors ${barChartTimeRange === range.key ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-black'}`}> {range.label} </button> ))} </div>
-                </div>
-                <div style={{ width: '100%', height: 240 }}> <ResponsiveContainer> <BarChart data={barChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}> <CartesianGrid strokeDasharray="3 3" /> <XAxis dataKey="name" fontSize={12} /> <YAxis fontSize={12} tickFormatter={(value) => formatCurrency(value)} /> <Tooltip contentStyle={{fontSize: '12px', padding: '4px 8px'}} formatter={(value) => [formatCurrency(value), 'Ciro']}/> <Bar dataKey="Ciro" fill="#4f46e5" /> </BarChart> </ResponsiveContainer> </div>
+        <div className="bg-gray-50 p-4 rounded-lg">
+            <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
+                <h3 className="font-semibold">Ciro Dağılımı</h3>
+                <div className="flex items-center rounded-lg bg-gray-200 p-0.5"> {pieTimeRanges.map(range => ( <button key={range.key} onClick={() => setPieChartTimeRange(range.key)} className={`px-2 py-0.5 text-xs font-semibold rounded-md transition-colors ${pieChartTimeRange === range.key ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-black'}`}> {range.label} </button> ))} </div>
             </div>
-            <div className="lg:col-span-2 bg-gray-50 p-4 rounded-lg">
-                <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
-                    <h3 className="font-semibold">Ciro Dağılımı</h3>
-                    <div className="flex items-center rounded-lg bg-gray-200 p-0.5"> {pieTimeRanges.map(range => ( <button key={range.key} onClick={() => setPieChartTimeRange(range.key)} className={`px-2 py-0.5 text-xs font-semibold rounded-md transition-colors ${pieChartTimeRange === range.key ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-black'}`}> {range.label} </button> ))} </div>
-                </div>
-                <div style={{ width: '100%', height: 240 }}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ minHeight: '240px' }}>
+                <div className="w-full h-full">
                     {pieChartData.length > 0 ? (
                         <ResponsiveContainer>
                             <PieChart>
-                                <Pie data={pieChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} labelLine={false} label={({ cx, cy, midAngle, innerRadius, outerRadius, percent, index }) => { const RADIAN = Math.PI / 180; const radius = innerRadius + (outerRadius - innerRadius) * 1.2; const x = cx + radius * Math.cos(-midAngle * RADIAN); const y = cy + radius * Math.sin(-midAngle * RADIAN); return ( <text x={x} y={y} fill="black" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize={12}> {`${(percent * 100).toFixed(0)}%`} </text> ); }}>
+                                <Pie data={pieChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={2}>
                                     {pieChartData.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}
                                 </Pie>
                                 <Tooltip formatter={(value, name) => [formatCurrency(value), name]} />
-                                <Legend iconSize={10} wrapperStyle={{fontSize: '12px'}}/>
                             </PieChart>
                         </ResponsiveContainer>
                     ) : <div className="flex items-center justify-center h-full text-sm text-gray-500">Seçili aralıkta satış verisi yok.</div>}
+                </div>
+                <div className="space-y-2 overflow-y-auto text-sm max-h-60">
+                    {pieChartData.map((entry, index) => (
+                        <div key={`legend-${index}`} className="flex items-center">
+                            <div className="w-3 h-3 rounded-sm mr-2" style={{backgroundColor: COLORS[index % COLORS.length]}}></div>
+                            <span className="font-medium truncate flex-1">{entry.name}</span>
+                            <span className="font-semibold ml-2">{formatCurrency(entry.value)}</span>
+                        </div>
+                    ))}
                 </div>
             </div>
         </div>
@@ -460,24 +485,22 @@ const Dashboard = ({ products, sales }) => {
         <div className="bg-gray-50 p-4 rounded-lg">
             <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
                 <h3 className="font-semibold">Ürün Performansı (Satış Adedi)</h3>
-                <select value={selectedProduct} onChange={(e) => setSelectedProduct(e.target.value)} className="text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                    <option value="">Bir ürün seçin...</option>
-                    {products.map(p => <option key={p.id} value={p.barcode}>{p.name}</option>)}
-                </select>
+                <div className="flex items-center gap-4">
+                    <select value={selectedProduct} onChange={(e) => setSelectedProduct(e.target.value)} className="text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                        <option value="">Bir ürün seçin...</option>
+                        {products.map(p => <option key={p.id} value={p.barcode}>{p.name}</option>)}
+                    </select>
+                    <div className="flex items-center rounded-lg bg-gray-200 p-0.5"> {timeRanges.map(range => ( <button key={range.key} onClick={() => setBarChartTimeRange(range.key)} className={`px-2 py-0.5 text-xs font-semibold rounded-md transition-colors ${barChartTimeRange === range.key ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-black'}`}> {range.label} </button> ))} </div>
+                </div>
             </div>
             {selectedProduct && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="md:col-span-2" style={{ width: '100%', height: 200 }}>
                         <ResponsiveContainer> <BarChart data={productChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}> <CartesianGrid strokeDasharray="3 3" /> <XAxis dataKey="name" fontSize={12} /> <YAxis fontSize={12} allowDecimals={false} /> <Tooltip contentStyle={{fontSize: '12px', padding: '4px 8px'}} formatter={(value) => [value, 'Adet']}/> <Bar dataKey="Adet" fill="#10b981" /> </BarChart> </ResponsiveContainer>
                     </div>
-                    <StatCard title="Toplam Satış" value={`${totalUnitsSold} adet`} icon={BarChart3} />
+                    <StatCard title="Toplam Satış (Seçili Aralık)" value={`${productChartData.reduce((acc, item) => acc + item.Adet, 0)} adet`} icon={BarChart3} />
                 </div>
             )}
-        </div>
-        
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-gray-50 p-4 rounded-lg"> <h3 className="font-semibold mb-3 flex items-center gap-2"><PackageSearch size={18}/> Stoğu Azalan Ürünler</h3> <div className="space-y-2 max-h-60 overflow-y-auto"> {lowStockProducts.length > 0 ? lowStockProducts.map(p => ( <div key={p.id} className="flex justify-between items-center text-sm"> <span className="truncate">{p.name}</span> <span className="font-bold text-red-600">{p.stock} adet</span> </div> )) : <p className="text-sm text-gray-500">Kritik stokta ürün yok.</p>} </div> </div>
-            <div className="bg-gray-50 p-4 rounded-lg"> <h3 className="font-semibold mb-3 flex items-center gap-2"><Calendar size={18}/> Geçmiş Aylık Cirolar</h3> <div className="space-y-2 max-h-60 overflow-y-auto"> {monthlyRevenueData.length > 0 ? monthlyRevenueData.map(month => ( <div key={month.name} className="flex justify-between items-center text-sm"> <span className="text-gray-600">{month.name}</span> <span className="font-bold text-green-700">{formatCurrency(month.revenue)}</span> </div> )) : <p className="text-sm text-gray-500">Geçmiş aylara ait satış verisi yok.</p>} </div> </div>
         </div>
     </div> );
 };
