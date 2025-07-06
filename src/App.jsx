@@ -1,44 +1,47 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, collection, onSnapshot, increment, addDoc, serverTimestamp, query, orderBy } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, collection, onSnapshot, increment, addDoc, serverTimestamp, query, orderBy, writeBatch } from 'firebase/firestore';
 import { Toaster, toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { Html5Qrcode } from 'html5-qrcode';
-import { LogIn, UserPlus, LogOut, ShoppingCart, Package, History, Loader2, Search, Edit, Trash2, AlertTriangle, PlusCircle, Building, LayoutDashboard, DollarSign, PackageSearch, TrendingUp, Camera, X, PlusSquare, BarChart3, PieChart as PieChartIcon, Calendar } from 'lucide-react';
+// import { Html5Qrcode } from 'html5-qrcode'; // Bu satır kaldırıldı. Kütüphane dinamik olarak yüklenecek.
+import { LogIn, UserPlus, LogOut, ShoppingCart, Package, History, Loader2, Search, Edit, Trash2, AlertTriangle, PlusCircle, Building, LayoutDashboard, DollarSign, PackageSearch, TrendingUp, Camera, X, PlusSquare, BarChart3, Calendar, ArrowUp, ArrowDown, PieChart as PieIcon, MinusCircle, Clock, UserCheck } from 'lucide-react';
 
+// --- Firebase Yapılandırması ---
+// Kullanıcının sağladığı Firebase bilgileri doğrudan eklendi.
 const firebaseConfig = {
   apiKey: "AIzaSyAb0VoKLRJKKgst9DVC_cb2ZU5wchfdTIM",
   authDomain: "stok-takip-uygulamam-5e4a5.firebaseapp.com",
   projectId: "stok-takip-uygulamam-5e4a5",
-  storageBucket: "stok-takip-uygulamam-5e4a5.firebasestorage.app",
+  storageBucket: "stok-takip-uygulamam-5e4a5.appspot.com",
   messagingSenderId: "393027640266",
   appId: "1:393027640266:web:020f72a9a23f3fd5fa4d33",
   measurementId: "G-SZ4DSQK66C"
 };
 
-// --- Firebase Initialization ---
+
+// --- Firebase Başlatma ---
 let app, auth, db;
 try {
-    app = initializeApp(firebaseConfig); 
+    app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
 } catch (e) {
     console.error("Firebase initialization failed:", e);
 }
 
-// --- Helper Functions ---
+// --- Yardımcı Fonksiyonlar ---
 const formatCurrency = (value) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value || 0);
 
-// --- Main App Component ---
+// --- Ana Uygulama Bileşeni ---
 export default function App() {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (!auth) { setLoading(false); return; };
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            setUser(user);
+        if (!auth) { setLoading(false); return; }
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+            setUser(currentUser);
             setLoading(false);
         });
         return () => unsubscribe();
@@ -54,7 +57,7 @@ export default function App() {
     );
 }
 
-// --- Authentication Page Component ---
+// --- Kimlik Doğrulama Sayfası ---
 const AuthPage = () => {
     const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
@@ -111,7 +114,7 @@ const AuthPage = () => {
     );
 };
 
-// --- Main Stock Application Component ---
+// --- Ana Stok Uygulaması Bileşeni ---
 const StockApp = ({ user }) => {
     const [products, setProducts] = useState([]);
     const [sales, setSales] = useState([]);
@@ -123,35 +126,27 @@ const StockApp = ({ user }) => {
     const salesPath = `artifacts/${firebaseConfig.appId}/users/${user.uid}/sales`;
 
     useEffect(() => {
-        if(!firebaseConfig.appId || !user) return;
+        if (!user) return;
         const productsQuery = query(collection(db, productsPath));
         const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
             setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setLoading(prev => ({ ...prev, products: false }));
+        }, (error) => {
+            console.error("Product listener error:", error);
+            toast.error("Ürün verileri alınırken bir hata oluştu. İzinlerinizi kontrol edin.");
         });
         const salesQuery = query(collection(db, salesPath), orderBy('saleDate', 'desc'));
         const unsubscribeSales = onSnapshot(salesQuery, (snapshot) => {
             setSales(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setLoading(prev => ({ ...prev, sales: false }));
+        }, (error) => {
+            console.error("Sales listener error:", error);
+            toast.error("Satış verileri alınırken bir hata oluştu. İzinlerinizi kontrol edin.");
         });
         return () => { unsubscribeProducts(); unsubscribeSales(); };
     }, [productsPath, salesPath, user]);
-    
-    const filteredProducts = useMemo(() => products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.barcode.includes(searchTerm)).sort((a, b) => a.name.localeCompare(b.name)), [products, searchTerm]);
 
-    const handleSellProduct = useCallback(async (barcode) => {
-        if (!barcode) return;
-        const productRef = doc(db, productsPath, barcode);
-        try {
-            const productSnap = await getDoc(productRef);
-            if (!productSnap.exists()) { toast.error("Ürün bulunamadı."); return; }
-            const productData = productSnap.data();
-            if (productData.stock <= 0) { toast.warning(`${productData.name} için stok tükendi!`); return; }
-            await updateDoc(productRef, { stock: increment(-1) });
-            await addDoc(collection(db, salesPath), { productName: productData.name, barcode, saleDate: serverTimestamp(), salePrice: productData.salePrice || 0 });
-            toast.success(`${productData.name} satıldı!`);
-        } catch (error) { toast.error("Satış sırasında bir hata oluştu."); }
-    }, [productsPath, salesPath]);
+    const filteredProducts = useMemo(() => products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || (p.barcode && p.barcode.includes(searchTerm))).sort((a, b) => a.name.localeCompare(b.name)), [products, searchTerm]);
 
     const handleAddOrUpdateProduct = useCallback(async (productData) => {
         const { barcode, name } = productData;
@@ -170,16 +165,6 @@ const StockApp = ({ user }) => {
             { loading: 'Ürün işleniyor...', success: (data) => `'${data.name}' ${data.message}.`, error: 'İşlem sırasında bir hata oluştu.' }
         );
     }, [productsPath]);
-    
-    const handleUpdateStock = useCallback(async (productId, amount) => {
-        if (!amount || isNaN(amount) || amount <= 0) {
-            toast.error("Lütfen geçerli bir miktar girin.");
-            return;
-        }
-        const productRef = doc(db, productsPath, productId);
-        await updateDoc(productRef, { stock: increment(amount) });
-        toast.success(`${amount} adet stok eklendi.`);
-    }, [productsPath]);
 
     const handleDeleteProduct = useCallback((id, name) => {
         const productRef = doc(db, productsPath, id);
@@ -192,14 +177,14 @@ const StockApp = ({ user }) => {
                 <Header userEmail={user.email} />
                 <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-1 flex flex-col gap-6">
-                        <SaleSection onSell={handleSellProduct} />
+                        <InstantSaleSection products={products} productsPath={productsPath} salesPath={salesPath} />
                         <AddProductSection onAdd={handleAddOrUpdateProduct} products={products} />
                     </div>
                     <div className="lg:col-span-2 bg-white p-4 sm:p-6 rounded-2xl shadow-sm">
                         <Tabs activeTab={activeTab} setActiveTab={setActiveTab} />
                         {activeTab === 'dashboard' && <Dashboard products={products} sales={sales} />}
-                        {activeTab === 'statistics' && <StatisticsPage products={products} sales={sales} />}
-                        {activeTab === 'stock' && <ProductList products={filteredProducts} loading={loading.products} onUpdate={handleAddOrUpdateProduct} onDelete={handleDeleteProduct} onAddStock={handleUpdateStock} searchTerm={searchTerm} setSearchTerm={setSearchTerm} />}
+                        {activeTab === 'statistics' && <StatisticsPage sales={sales} />}
+                        {activeTab === 'stock' && <ProductList products={filteredProducts} loading={loading.products} onUpdate={handleAddOrUpdateProduct} onDelete={handleDeleteProduct} productsPath={productsPath} salesPath={salesPath} searchTerm={searchTerm} setSearchTerm={setSearchTerm} />}
                         {activeTab === 'history' && <SalesHistory sales={sales} loading={loading.sales} />}
                     </div>
                 </main>
@@ -211,95 +196,67 @@ const StockApp = ({ user }) => {
 // --- Child Components ---
 const Header = ({ userEmail }) => ( <header className="text-center mb-6 md:mb-8"> <h1 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">Stok Takip Sistemi</h1> <div className="flex items-center justify-center gap-4 mt-3"> <p className="text-sm text-gray-500">Giriş yapıldı: <span className="font-medium text-gray-700">{userEmail}</span></p> <button onClick={() => signOut(auth)} className="text-sm text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1.5"> <LogOut size={14} /> Çıkış Yap </button> </div> </header> );
 
-const SaleSection = ({ onSell }) => {
+const InstantSaleSection = ({ products, productsPath, salesPath }) => {
     const [barcode, setBarcode] = useState('');
     const [showScanner, setShowScanner] = useState(false);
-    const inputRef = useRef(null); 
+    const inputRef = useRef(null);
 
-    useEffect(() => { if (inputRef.current) inputRef.current.focus(); }, []);
+    const handleSellProduct = useCallback(async (scannedBarcode) => {
+        if (!scannedBarcode) return;
+        
+        const product = products.find(p => p.barcode === scannedBarcode);
+        if (!product) {
+            toast.error("Ürün bulunamadı.");
+            setBarcode('');
+            return;
+        }
 
-    const handleSubmit = (e) => { e.preventDefault(); onSell(barcode); setBarcode(''); if (inputRef.current) inputRef.current.focus(); };
+        if (product.stock <= 0) {
+            toast.warning(`${product.name} için stok tükendi!`);
+            setBarcode('');
+            return;
+        }
+        
+        const productRef = doc(db, productsPath, product.id);
+        const saleRef = doc(collection(db, salesPath));
+        const batch = writeBatch(db);
 
-    const onScanSuccess = (decodedText) => {
-        setShowScanner(false);
-        onSell(decodedText);
-    };
+        batch.update(productRef, { stock: increment(-1) });
+        batch.set(saleRef, {
+            type: 'sale',
+            saleDate: serverTimestamp(),
+            total: product.salePrice,
+            items: [{ productId: product.id, name: product.name, quantity: 1, price: product.salePrice }]
+        });
+
+        await toast.promise(batch.commit(), {
+            loading: 'Satış işleniyor...',
+            success: `${product.name} satıldı!`,
+            error: 'Satış sırasında bir hata oluştu.'
+        });
+        setBarcode('');
+    }, [products, productsPath, salesPath]);
+
+    const handleSubmit = (e) => { e.preventDefault(); handleSellProduct(barcode); if (inputRef.current) inputRef.current.focus(); };
+    const onScanSuccess = (decodedText) => { setShowScanner(false); handleSellProduct(decodedText); };
 
     return (
-        <div className="bg-white p-6 rounded-2xl shadow-sm">
-            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2"><ShoppingCart size={22} /> Hızlı Satış</h2>
+        <div className="bg-white p-6 rounded-2xl shadow-sm flex flex-col gap-4">
+            <h2 className="text-xl font-semibold flex items-center gap-2"><ShoppingCart size={22} /> Anında Satış</h2>
             <form onSubmit={handleSubmit}>
-                <div className="rounded-lg bg-gray-50 p-3 mb-3">
+                <div className="rounded-lg bg-gray-50 p-3">
                     <label htmlFor="barcode-input" className="block text-xs font-medium text-gray-500">Ürün Barkodu</label>
                     <div className="flex items-center gap-2 mt-1">
-                        <input ref={inputRef} id="barcode-input" type="text" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Barkodu okutun veya girin..." className="block w-full border-0 bg-transparent p-0 text-gray-900 placeholder:text-gray-400 focus:ring-0 sm:text-sm"/>
-                        <button type="button" onClick={() => setShowScanner(true)} className="p-2 text-gray-500 hover:text-indigo-600" title="Kamera ile Tara">
-                            <Camera size={20} />
-                        </button>
+                        <input ref={inputRef} autoFocus id="barcode-input" type="text" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Barkodu okutun veya girip Enter'a basın" className="block w-full border-0 bg-transparent p-0 text-gray-900 placeholder:text-gray-400 focus:ring-0 sm:text-sm"/>
+                        <button type="button" onClick={() => setShowScanner(true)} className="p-2 text-gray-500 hover:text-indigo-600" title="Kamera ile Tara"> <Camera size={20} /> </button>
                     </div>
                 </div>
-                <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2">
-                    <ShoppingCart size={18} />
-                    Satış Yap
-                </button>
             </form>
             {showScanner && <CameraScanner onScanSuccess={onScanSuccess} onClose={() => setShowScanner(false)} />}
         </div>
     );
 };
 
-const CameraScanner = ({ onScanSuccess, onClose }) => {
-    const scannerRef = useRef(null);
-
-    useEffect(() => {
-        if (!scannerRef.current) {
-            scannerRef.current = new Html5Qrcode("barcode-scanner-container");
-        }
-        const scanner = scannerRef.current;
-        let isScanning = true;
-
-        scanner.start(
-            { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 150 } },
-            (decodedText, decodedResult) => {
-                if (isScanning) {
-                    isScanning = false;
-                    onScanSuccess(decodedText);
-                }
-            },
-            (errorMessage) => { /* ignore */ }
-        ).catch(err => {
-            toast.error("Kamera başlatılamadı. Lütfen tarayıcı izinlerini kontrol edin.");
-            onClose();
-        });
-
-        return () => {
-            if (scanner && scanner.isScanning) {
-                scanner.stop().catch(err => console.error("Scanner stop failed", err));
-            }
-        };
-    }, [onScanSuccess, onClose]);
-
-    return (
-        <div className="fixed inset-0 bg-black/80 flex flex-col items-center justify-center z-50 p-4">
-            <div id="barcode-scanner-container" className="w-full max-w-md bg-white rounded-lg overflow-hidden aspect-video"></div>
-            <button onClick={onClose} className="mt-4 bg-white text-black px-4 py-2 rounded-lg font-semibold flex items-center gap-2">
-                <X size={18} /> Kapat
-            </button>
-        </div>
-    );
-};
-
-const FormInput = ({ label, id, required, children }) => (
-    <div className="rounded-lg bg-gray-50 p-3">
-        <label htmlFor={id} className="block text-xs font-medium text-gray-500">
-            {label}{required && <span className="text-red-500"> *</span>}
-        </label>
-        <div className="mt-1">
-            {children}
-        </div>
-    </div>
-);
 
 const AddProductSection = ({ onAdd, products }) => {
     const [product, setProduct] = useState({ name: '', barcode: '', stock: '', purchasePrice: '', salePrice: '', category: '' });
@@ -312,7 +269,7 @@ const AddProductSection = ({ onAdd, products }) => {
         const productData = { ...product, stock: parseInt(stock), purchasePrice: parseFloat(purchasePrice), salePrice: parseFloat(salePrice) };
         const existingProduct = products.find(p => p.id === barcode);
         if (existingProduct) {
-            toast( `Bu barkod "${existingProduct.name}" ürününe ait.`, { action: { label: 'Güncelle', onClick: () => { onAdd(productData); resetForm(); }}, cancel: { label: 'İptal' } });
+            toast( `Bu barkod "${existingProduct.name}" ürününe ait. Bilgileri güncellemek ister misiniz?`, { action: { label: 'Güncelle', onClick: () => { onAdd(productData); resetForm(); }}, cancel: { label: 'İptal' } });
         } else {
             await onAdd(productData);
             resetForm();
@@ -327,7 +284,7 @@ const AddProductSection = ({ onAdd, products }) => {
 
     const inputClass = "block w-full border-0 bg-transparent p-0 text-gray-900 placeholder:text-gray-400 focus:ring-0 sm:text-sm";
 
-    return ( <div className="bg-white p-6 rounded-2xl shadow-sm"> <h2 className="text-xl font-semibold mb-4 flex items-center gap-2"><PlusCircle size={22} /> Yeni Ürün Ekle</h2> <form onSubmit={handleSubmit} className="space-y-3">
+    return ( <div className="bg-white p-6 rounded-2xl shadow-sm"> <h2 className="text-xl font-semibold mb-4 flex items-center gap-2"><Package size={22} /> Ürün Yönetimi</h2> <form onSubmit={handleSubmit} className="space-y-3">
         <FormInput label="Ürün Adı" id="name" required><input type="text" name="name" id="name" value={product.name} onChange={(e) => setProduct({...product, name: e.target.value})} className={inputClass} placeholder="Örn: Kutu Süt"/></FormInput>
         <FormInput label="Barkod Numarası" id="barcode" required>
             <div className="flex items-center gap-2">
@@ -343,29 +300,30 @@ const AddProductSection = ({ onAdd, products }) => {
             <FormInput label="Satış Fiyatı (₺)" id="salePrice" required><input type="number" name="salePrice" id="salePrice" value={product.salePrice} onChange={(e) => setProduct({...product, salePrice: e.target.value})} className={inputClass} placeholder="0.00" min="0" step="0.01"/></FormInput>
         </div>
         <FormInput label="Kategori" id="category"><input type="text" name="category" id="category" value={product.category} onChange={(e) => setProduct({...product, category: e.target.value})} className={inputClass} placeholder="Örn: İçecek"/></FormInput>
-        <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-indigo-700 transition-all duration-300 flex items-center justify-center gap-2"> <PlusCircle size={20} /> <span>Ürünü Ekle</span> </button>
+        <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-indigo-700 transition-all duration-300 flex items-center justify-center gap-2"> <PlusCircle size={20} /> <span>Ürünü Ekle / Güncelle</span> </button>
     </form>
     {showScanner && <CameraScanner onScanSuccess={onBarcodeScan} onClose={() => setShowScanner(false)} />}
     </div> );
 };
-const Tabs = ({ activeTab, setActiveTab }) => { const tabData = [ { id: 'dashboard', label: 'Gösterge Paneli', icon: LayoutDashboard }, { id: 'statistics', label: 'İstatistikler', icon: BarChart3 }, { id: 'stock', label: 'Stok Listesi', icon: Package }, { id: 'history', label: 'Satış Geçmişi', icon: History } ]; return ( <div className="border-b border-gray-200 mb-4"> <nav className="-mb-px flex space-x-6" aria-label="Tabs"> {tabData.map(tab => ( <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-200 ${activeTab === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}> <tab.icon size={16} /><span>{tab.label}</span> </button> ))} </nav> </div> ); };
+
+const Tabs = ({ activeTab, setActiveTab }) => { const tabData = [ { id: 'dashboard', label: 'Gösterge Paneli', icon: LayoutDashboard }, { id: 'statistics', label: 'İstatistikler', icon: BarChart3 }, { id: 'stock', label: 'Stok Listesi', icon: Package }, { id: 'history', label: 'Satış Geçmişi', icon: History } ]; return ( <div className="border-b border-gray-200 mb-4"> <nav className="-mb-px flex space-x-2 sm:space-x-6 overflow-x-auto" aria-label="Tabs"> {tabData.map(tab => ( <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 whitespace-nowrap py-3 px-2 sm:px-3 border-b-2 font-medium text-sm transition-colors duration-200 ${activeTab === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}> <tab.icon size={16} /><span>{tab.label}</span> </button> ))} </nav> </div> ); };
 
 const Dashboard = ({ products, sales }) => {
     const { totalStockValue, todaysRevenue, lowStockProducts, monthlyRevenueData } = useMemo(() => {
         const now = new Date();
         const totalStockValue = products.reduce((sum, p) => sum + ((p.purchasePrice || 0) * (p.stock || 0)), 0);
         const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const todaysSales = sales.filter(s => s.saleDate && s.saleDate.toDate() >= todayStart);
-        const todaysRevenue = todaysSales.reduce((sum, s) => sum + (s.salePrice || 0), 0);
+        const todaysSales = sales.filter(s => s.saleDate && s.saleDate.toDate() >= todayStart && s.type === 'sale');
+        const todaysRevenue = todaysSales.reduce((sum, s) => sum + (s.total || 0), 0);
         const lowStockProducts = products.filter(p => p.stock <= 5).sort((a,b) => a.stock - b.stock);
 
         const monthlyRevenuesForSort = {};
-        sales.forEach(s => {
+        sales.filter(s => s.type === 'sale').forEach(s => {
             if (s.saleDate) {
                 const saleDate = s.saleDate.toDate();
                 const monthYearKey = `${saleDate.getFullYear()}-${String(saleDate.getMonth() + 1).padStart(2, '0')}`;
                 if (!monthlyRevenuesForSort[monthYearKey]) monthlyRevenuesForSort[monthYearKey] = 0;
-                monthlyRevenuesForSort[monthYearKey] += s.salePrice || 0;
+                monthlyRevenuesForSort[monthYearKey] += s.total || 0;
             }
         });
         const sortedMonths = Object.keys(monthlyRevenuesForSort).sort().reverse();
@@ -391,126 +349,196 @@ const Dashboard = ({ products, sales }) => {
     </div> );
 };
 
-const StatisticsPage = ({ products, sales }) => {
-    const [barChartTimeRange, setBarChartTimeRange] = useState('weekly');
-    const [pieChartTimeRange, setPieChartTimeRange] = useState('weekly');
-    const [selectedProduct, setSelectedProduct] = useState('');
+const StatisticsPage = ({ sales }) => {
+    const [timePeriod, setTimePeriod] = useState('weekly');
 
-    const { productChartData, totalUnitsSold, pieChartData } = useMemo(() => {
+    const { currentPeriod, previousPeriod, busiestDays, busiestHours, revenueByProduct, topSellingProducts, personnelUsageData } = useMemo(() => {
         const now = new Date();
-        const calculateGroupedSales = (salesToFilter, groupBy) => {
-            const grouped = {};
-            salesToFilter.forEach(s => {
-                const saleDate = s.saleDate.toDate();
-                let key;
-                if (groupBy === 'hour') key = `${saleDate.getHours()}:00`;
-                else if (groupBy === 'day') key = saleDate.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' });
-                else if (groupBy === 'month') key = saleDate.toLocaleDateString('tr-TR', { month: 'short', year: '2-digit' });
-                if (!grouped[key]) grouped[key] = { Ciro: 0, Adet: 0 };
-                grouped[key].Ciro += s.salePrice || 0;
-                grouped[key].Adet += 1;
-            });
-            return Object.keys(grouped).map(key => ({ name: key, ...grouped[key] }));
-        };
+        let currentStart, currentEnd, previousStart, previousEnd;
 
-        let barStartDate, barGroupBy;
-        switch (barChartTimeRange) {
-            case 'daily': barStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()); barGroupBy = 'hour'; break;
-            case 'monthly': barStartDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()); barGroupBy = 'day'; break;
-            case 'yearly': barStartDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()); barGroupBy = 'month'; break;
-            default: barStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6); barGroupBy = 'day';
+        switch (timePeriod) {
+            case 'daily':
+                currentStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                currentEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+                previousStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+                previousEnd = currentStart;
+                break;
+            case 'monthly':
+                currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
+                currentEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+                previousStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                previousEnd = currentStart;
+                break;
+            case 'yearly':
+                currentStart = new Date(now.getFullYear(), 0, 1);
+                currentEnd = new Date(now.getFullYear() + 1, 0, 1);
+                previousStart = new Date(now.getFullYear() - 1, 0, 1);
+                previousEnd = currentStart;
+                break;
+            case 'weekly':
+            default:
+                const dayOfWeek = now.getDay() === 0 ? 6 : now.getDay() - 1;
+                currentStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek);
+                currentEnd = new Date(currentStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+                previousStart = new Date(currentStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+                previousEnd = currentStart;
+                break;
         }
+
+        const filterSalesByDate = (salesArray, start, end) => salesArray.filter(s => s.saleDate && s.saleDate.toDate() >= start && s.saleDate.toDate() < end);
         
-        let productChartData = [];
-        let totalUnitsSold = 0;
-        if (selectedProduct) {
-            const productSales = sales.filter(s => s.barcode === selectedProduct);
-            totalUnitsSold = productSales.length;
-            const productSalesToFilter = productSales.filter(s => s.saleDate && s.saleDate.toDate() >= barStartDate);
-            productChartData = calculateGroupedSales(productSalesToFilter, barGroupBy);
-        }
+        const currentSales = filterSalesByDate(sales.filter(s => s.type === 'sale'), currentStart, currentEnd);
+        const previousSales = filterSalesByDate(sales.filter(s => s.type === 'sale'), previousStart, previousEnd);
+        const currentPersonnelUsage = filterSalesByDate(sales.filter(s => s.type === 'personnel'), currentStart, currentEnd);
 
-        let pieStartDate;
-        switch (pieChartTimeRange) {
-            case 'daily': pieStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()); break;
-            case 'monthly': pieStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29); break;
-            default: pieStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
-        }
-        const pieSalesToFilter = sales.filter(s => s.saleDate && s.saleDate.toDate() >= pieStartDate);
-        const revenueByProduct = {};
-        pieSalesToFilter.forEach(s => {
-            if (!revenueByProduct[s.productName]) revenueByProduct[s.productName] = 0;
-            revenueByProduct[s.productName] += s.salePrice || 0;
+        const getSum = (filteredSales) => filteredSales.reduce((sum, s) => sum + (s.total || 0), 0);
+
+        const dayNames = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
+        const salesByDay = new Array(7).fill(0).map((_, i) => ({ name: dayNames[i], Ciro: 0 }));
+        const salesByHour = new Array(24).fill(0).map((_, i) => ({ name: `${i}:00`, Ciro: 0 }));
+        const productRevenue = {};
+
+        currentSales.forEach(s => {
+            const saleDate = s.saleDate.toDate();
+            salesByDay[saleDate.getDay()].Ciro += s.total;
+            salesByHour[saleDate.getHours()].Ciro += s.total;
+
+            s.items.forEach(item => {
+                if (!productRevenue[item.name]) productRevenue[item.name] = 0;
+                productRevenue[item.name] += item.price * item.quantity;
+            });
         });
-        const pieChartData = Object.keys(revenueByProduct).map(name => ({ name, value: revenueByProduct[name] })).sort((a,b) => b.value - a.value);
+        
+        const sortedProducts = Object.entries(productRevenue).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value);
+        const top5Products = sortedProducts.slice(0, 5);
+        const otherProductsValue = sortedProducts.slice(5).reduce((acc, p) => acc + p.value, 0);
+        const revenueByProductData = [...top5Products];
+        if (otherProductsValue > 0) {
+            revenueByProductData.push({ name: 'Diğer', value: otherProductsValue });
+        }
 
-        return { productChartData, totalUnitsSold, pieChartData };
-    }, [sales, barChartTimeRange, selectedProduct, pieChartTimeRange]);
+        const usageByProduct = {};
+        currentPersonnelUsage.forEach(sale => {
+            sale.items.forEach(item => {
+                if (!usageByProduct[item.name]) usageByProduct[item.name] = 0;
+                usageByProduct[item.name] += item.quantity;
+            });
+        });
+        const personnelUsageData = Object.entries(usageByProduct).map(([name, quantity]) => ({ name, quantity })).sort((a, b) => b.quantity - a.quantity);
+
+        return {
+            currentPeriod: { revenue: getSum(currentSales) },
+            previousPeriod: { revenue: getSum(previousSales) },
+            busiestDays: salesByDay,
+            busiestHours: salesByHour.filter(h => h.Ciro > 0),
+            revenueByProduct: revenueByProductData,
+            topSellingProducts: top5Products,
+            personnelUsageData
+        };
+    }, [sales, timePeriod]);
     
-    const timeRanges = [ { key: 'daily', label: 'Gün' }, { key: 'weekly', label: 'Hafta' }, { key: 'monthly', label: 'Ay' }, { key: 'yearly', label: 'Yıl' } ];
-    const pieTimeRanges = [ { key: 'daily', label: 'Günlük' }, { key: 'weekly', label: 'Haftalık' }, { key: 'monthly', label: 'Aylık' }];
-    const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6', '#d946ef', '#64748b'];
+    const PIE_COLORS = ['#3b82f6', '#10b981', '#f97316', '#ec4899', '#8b5cf6', '#a8a29e'];
+    const periodLabels = { daily: 'Günlük', weekly: 'Haftalık', monthly: 'Aylık', yearly: 'Yıllık' };
 
-    return ( <div className="space-y-6">
-        <div className="bg-gray-50 p-4 rounded-lg">
-            <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
-                <h3 className="font-semibold">Ciro Dağılımı</h3>
-                <div className="flex items-center rounded-lg bg-gray-200 p-0.5"> {pieTimeRanges.map(range => ( <button key={range.key} onClick={() => setPieChartTimeRange(range.key)} className={`px-2 py-0.5 text-xs font-semibold rounded-md transition-colors ${pieChartTimeRange === range.key ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-black'}`}> {range.label} </button> ))} </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ minHeight: '240px' }}>
-                <div className="w-full h-full">
-                    {pieChartData.length > 0 ? (
-                        <ResponsiveContainer>
-                            <PieChart>
-                                <Pie data={pieChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={2}>
-                                    {pieChartData.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}
-                                </Pie>
-                                <Tooltip formatter={(value, name) => [formatCurrency(value), name]} />
-                            </PieChart>
-                        </ResponsiveContainer>
-                    ) : <div className="flex items-center justify-center h-full text-sm text-gray-500">Seçili aralıkta satış verisi yok.</div>}
-                </div>
-                <div className="space-y-2 overflow-y-auto text-sm max-h-60">
-                    {pieChartData.map((entry, index) => (
-                        <div key={`legend-${index}`} className="flex items-center">
-                            <div className="w-3 h-3 rounded-sm mr-2" style={{backgroundColor: COLORS[index % COLORS.length]}}></div>
-                            <span className="font-medium truncate flex-1">{entry.name}</span>
-                            <span className="font-semibold ml-2">{formatCurrency(entry.value)}</span>
-                        </div>
+    return (
+        <div className="space-y-6">
+            <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">İstatistikler</h3>
+                <div className="flex items-center gap-2 rounded-lg bg-gray-100 p-1">
+                    {Object.keys(periodLabels).map(period => (
+                        <button key={period} onClick={() => setTimePeriod(period)} className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${timePeriod === period ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>
+                            {periodLabels[period]}
+                        </button>
                     ))}
                 </div>
             </div>
-        </div>
+            
+            <ComparisonCard title={`${periodLabels[timePeriod]} Ciro`} current={currentPeriod.revenue} previous={previousPeriod.revenue} />
 
-        <div className="bg-gray-50 p-4 rounded-lg">
-            <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
-                <h3 className="font-semibold">Ürün Performansı (Satış Adedi)</h3>
-                <div className="flex items-center gap-4">
-                    <select value={selectedProduct} onChange={(e) => setSelectedProduct(e.target.value)} className="text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                        <option value="">Bir ürün seçin...</option>
-                        {products.map(p => <option key={p.id} value={p.barcode}>{p.name}</option>)}
-                    </select>
-                    <div className="flex items-center rounded-lg bg-gray-200 p-0.5"> {timeRanges.map(range => ( <button key={range.key} onClick={() => setBarChartTimeRange(range.key)} className={`px-2 py-0.5 text-xs font-semibold rounded-md transition-colors ${barChartTimeRange === range.key ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-black'}`}> {range.label} </button> ))} </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <ChartContainer title="En Yoğun Günler" icon={Calendar}>
+                    <BarChart data={busiestDays} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" fontSize={12} />
+                        <YAxis fontSize={12} tickFormatter={formatCurrency} />
+                        <Tooltip contentStyle={{fontSize: '12px', padding: '4px 8px'}} formatter={(value) => [formatCurrency(value), 'Ciro']}/>
+                        <Bar dataKey="Ciro" fill="#10b981" />
+                    </BarChart>
+                </ChartContainer>
+                <ChartContainer title="En Yoğun Saatler" icon={Clock}>
+                     <BarChart data={busiestHours} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" fontSize={10} />
+                        <YAxis fontSize={12} tickFormatter={formatCurrency} />
+                        <Tooltip contentStyle={{fontSize: '12px', padding: '4px 8px'}} formatter={(value) => [formatCurrency(value), 'Ciro']}/>
+                        <Bar dataKey="Ciro" fill="#3b82f6" />
+                    </BarChart>
+                </ChartContainer>
+                <ChartContainer title="Ürün Ciro Dağılımı" icon={PieIcon}>
+                    <PieChart>
+                        <Pie data={revenueByProduct} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} fill="#8884d8">
+                            {revenueByProduct.map((entry, index) => ( <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} /> ))}
+                        </Pie>
+                        <Tooltip formatter={(value) => formatCurrency(value)} />
+                        <Legend iconSize={10} />
+                    </PieChart>
+                </ChartContainer>
+                <ChartContainer title="En Çok Satan Ürünler" icon={TrendingUp}>
+                    <BarChart data={topSellingProducts} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" hide />
+                        <YAxis type="category" dataKey="name" width={100} tick={{fontSize: 10}}/>
+                        <Tooltip formatter={(value) => [formatCurrency(value), 'Ciro']}/>
+                        <Bar dataKey="value" fill="#f97316" background={{ fill: '#eee' }} label={{ position: 'right', formatter: (value) => formatCurrency(value), fontSize: 10 }} />
+                    </BarChart>
+                </ChartContainer>
+                <div className="bg-gray-50 p-4 rounded-lg lg:col-span-2">
+                    <h3 className="font-semibold mb-3 flex items-center gap-2"><UserCheck size={18}/> Personel Kullanım Özeti ({periodLabels[timePeriod]})</h3>
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                        {personnelUsageData.length > 0 ? personnelUsageData.map(item => (
+                            <div key={item.name} className="flex justify-between items-center text-sm">
+                                <span className="truncate">{item.name}</span>
+                                <span className="font-bold text-yellow-600">{item.quantity} adet</span>
+                            </div>
+                        )) : <p className="text-sm text-gray-500">Bu dönemde personel kullanımı kaydedilmedi.</p>}
+                    </div>
                 </div>
             </div>
-            {selectedProduct && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="md:col-span-2" style={{ width: '100%', height: 200 }}>
-                        <ResponsiveContainer> <BarChart data={productChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}> <CartesianGrid strokeDasharray="3 3" /> <XAxis dataKey="name" fontSize={12} /> <YAxis fontSize={12} allowDecimals={false} /> <Tooltip contentStyle={{fontSize: '12px', padding: '4px 8px'}} formatter={(value) => [value, 'Adet']}/> <Bar dataKey="Adet" fill="#10b981" /> </BarChart> </ResponsiveContainer>
-                    </div>
-                    <StatCard title="Toplam Satış (Seçili Aralık)" value={`${productChartData.reduce((acc, item) => acc + item.Adet, 0)} adet`} icon={BarChart3} />
-                </div>
-            )}
         </div>
-    </div> );
+    );
 };
 
-const StatCard = ({ title, value, icon: Icon }) => ( <div className="bg-gray-50 p-4 rounded-lg flex items-center gap-4"> <div className="bg-indigo-100 text-indigo-600 p-3 rounded-full"> <Icon size={24} /> </div> <div> <p className="text-sm text-gray-500">{title}</p> <p className="text-2xl font-bold text-gray-800">{value}</p> </div> </div> );
-
-const ProductList = ({ products, loading, onUpdate, onDelete, onAddStock, searchTerm, setSearchTerm }) => {
+const ProductList = ({ products, loading, onUpdate, onDelete, productsPath, salesPath, searchTerm, setSearchTerm }) => {
     const [editingProduct, setEditingProduct] = useState(null);
+    const [stockModalProduct, setStockModalProduct] = useState(null);
     const handleUpdateSubmit = (e) => { e.preventDefault(); onUpdate(editingProduct); setEditingProduct(null); };
     
+    const handleAddStock = useCallback(async (productId, amount) => {
+        if (!amount || isNaN(amount) || amount <= 0) {
+            toast.error("Lütfen geçerli bir miktar girin.");
+            return;
+        }
+        const productRef = doc(db, productsPath, productId);
+        await updateDoc(productRef, { stock: increment(amount) });
+        toast.success(`${amount} adet stok eklendi.`);
+    }, [productsPath]);
+
+    const handlePersonnelUse = useCallback(async (product, amount) => {
+        const productRef = doc(db, productsPath, product.id);
+        try {
+            if (product.stock < amount) {
+                toast.error(`Yetersiz stok! Sadece ${product.stock} adet mevcut.`);
+                return;
+            }
+            const batch = writeBatch(db);
+            batch.update(productRef, { stock: increment(-amount) });
+            const saleRef = doc(collection(db, salesPath));
+            batch.set(saleRef, { type: 'personnel', saleDate: serverTimestamp(), total: 0, items: [{ productId: product.id, name: product.name, quantity: amount, price: 0 }] });
+            await batch.commit();
+            toast.info(`${amount} adet ${product.name}, personel kullanımı olarak düşüldü.`);
+        } catch (error) { toast.error("İşlem sırasında bir hata oluştu."); }
+    }, [productsPath, salesPath]);
+
     if (loading) return <LoadingSpinner />;
     if (products.length === 0 && !searchTerm) return <EmptyState icon={<Package size={40}/>} message="Henüz ürün eklenmemiş." />;
     return ( <div className="space-y-3">
@@ -521,15 +549,8 @@ const ProductList = ({ products, loading, onUpdate, onDelete, onAddStock, search
                 <div className="flex-1 min-w-0"> <p className="font-semibold text-gray-800 truncate flex items-center">{p.name} {p.stock <= 5 && <AlertTriangle size={14} className="ml-2 text-red-500"/>}</p> <p className="text-xs text-gray-500">Barkod: {p.barcode} | Kategori: {p.category || 'Yok'}</p> <p className="text-xs text-green-700 font-medium">Satış: {formatCurrency(p.salePrice)}</p> </div>
                 <div className="text-right mx-4 w-16"> <p className={`font-bold text-lg ${p.stock > 10 ? 'text-green-600' : p.stock > 5 ? 'text-yellow-600' : 'text-red-600'}`}>{p.stock}</p> <p className="text-xs text-gray-500">adet</p> </div>
                 <div className="flex space-x-1">
-                    <button onClick={() => {
-                        toast.prompt('Ne kadar stok eklenecek?', {
-                            placeholder: 'Örn: 12',
-                            onAccept: (value) => {
-                                const amount = parseInt(value);
-                                if (amount > 0) { onAddStock(p.id, amount); } else { toast.error("Lütfen geçerli bir miktar girin."); }
-                            },
-                        });
-                    }} className="p-2 text-green-600 hover:bg-green-100 rounded-md" title="Stok Ekle"><PlusSquare size={16} /></button>
+                    <button onClick={() => handlePersonnelUse(p, 1)} className="p-2 text-yellow-600 hover:bg-yellow-100 rounded-md" title="Personel Kullanımı (1 Adet Düş)"><UserCheck size={16} /></button>
+                    <button onClick={() => setStockModalProduct(p)} className="p-2 text-green-600 hover:bg-green-100 rounded-md" title="Stok Ekle"><PlusSquare size={16} /></button>
                     <button onClick={() => setEditingProduct(p)} className="p-2 text-blue-600 hover:bg-blue-100 rounded-md" title="Düzenle"><Edit size={16} /></button>
                     <button onClick={() => toast(`"${p.name}" ürününü silmek istediğinize emin misiniz?`, { action: { label: 'Evet, Sil', onClick: () => onDelete(p.id, p.name) }, cancel: { label: 'İptal' } })} className="p-2 text-red-600 hover:bg-red-100 rounded-md" title="Sil"><Trash2 size={16} /></button>
                 </div>
@@ -548,8 +569,202 @@ const ProductList = ({ products, loading, onUpdate, onDelete, onAddStock, search
                 <div className="flex justify-end space-x-3 mt-2"> <button type="button" onClick={() => setEditingProduct(null)} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">İptal</button> <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Kaydet</button> </div>
             </form>
         </div> </div> )}
+        {stockModalProduct && <AddStockModal product={stockModalProduct} onClose={() => setStockModalProduct(null)} onAddStock={handleAddStock} />}
     </div> );
 };
-const SalesHistory = ({ sales, loading }) => { if (loading) return <LoadingSpinner />; if (sales.length === 0) return <EmptyState icon={<History size={40}/>} message="Henüz satış yapılmamış." />; return ( <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-2"> {sales.map(s => ( <div key={s.id} className="flex justify-between items-center p-3 rounded-lg bg-gray-50"> <div> <p className="font-semibold">{s.productName}</p> <p className="text-xs text-gray-500">Barkod: {s.barcode}</p> </div> <p className="text-sm text-green-700 font-medium">{formatCurrency(s.salePrice)}</p> <p className="text-sm text-gray-500">{s.saleDate ? s.saleDate.toDate().toLocaleString('tr-TR') : '...'}</p> </div> ))} </div> ); };
+
+const AddStockModal = ({ product, onClose, onAddStock }) => {
+    const [amount, setAmount] = useState('');
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        const stockToAdd = parseInt(amount);
+        if (stockToAdd > 0) {
+            onAddStock(product.id, stockToAdd);
+            onClose();
+        } else {
+            toast.error("Lütfen geçerli bir miktar girin.");
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+            <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+                <h3 className="text-xl font-semibold mb-4">Stok Ekle: <span className="font-bold text-indigo-600">{product.name}</span></h3>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <FormInput label="Eklenecek Miktar" id="stock-amount">
+                        <input
+                            type="number"
+                            value={amount}
+                            onChange={e => setAmount(e.target.value)}
+                            className="block w-full border-0 bg-transparent p-0 text-gray-900 placeholder:text-gray-400 focus:ring-0 sm:text-sm"
+                            placeholder="0"
+                            min="1"
+                            autoFocus
+                            required
+                        />
+                    </FormInput>
+                    <div className="flex justify-end space-x-3 pt-2">
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 font-semibold text-sm">İptal</button>
+                        <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm">Ekle</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+const SalesHistory = ({ sales, loading }) => {
+    if (loading) return <LoadingSpinner />;
+    if (!sales || sales.length === 0) return <EmptyState icon={<History size={40}/>} message="Henüz işlem yapılmamış." />;
+    return (
+        <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-2">
+            {sales.map(s => (
+                <div key={s.id} className="p-3 rounded-lg bg-gray-50">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-xs text-gray-500">{s.saleDate ? s.saleDate.toDate().toLocaleString('tr-TR') : '...'}</p>
+                            <span className={`text-xs font-semibold text-white px-2 py-0.5 rounded-full ${s.type === 'sale' ? 'bg-green-600' : 'bg-yellow-600'}`}>
+                                {s.type === 'sale' ? 'SATIŞ' : 'PERSONEL KULLANIMI'}
+                            </span>
+                        </div>
+                        <p className="text-lg font-bold text-green-700">{s.type === 'sale' ? formatCurrency(s.total) : ''}</p>
+                    </div>
+                    <div className="mt-2 border-t pt-2 space-y-1">
+                        {s.items && Array.isArray(s.items) ? (
+                            s.items.map((item, index) => (
+                                <div key={index} className="flex justify-between items-center text-sm">
+                                    <p className="text-gray-700">
+                                        <span className="font-medium">{item.quantity}x</span> {item.name}
+                                    </p>
+                                    <p className="text-gray-500">{s.type === 'sale' ? formatCurrency(item.price * item.quantity) : ''}</p>
+                                </div>
+                            ))
+                        ) : (
+                            // Eski veri yapısı için fallback
+                            <div className="flex justify-between items-center text-sm">
+                                <p className="text-gray-700">
+                                    <span className="font-medium">{s.quantity || 1}x</span> {s.productName}
+                                </p>
+                                <p className="text-gray-500">{s.type === 'sale' ? formatCurrency(s.salePrice) : ''}</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+const ComparisonCard = ({ title, current, previous }) => {
+    const percentageChange = previous > 0 ? ((current - previous) / previous) * 100 : current > 0 ? 100 : 0;
+    const isIncrease = percentageChange >= 0;
+
+    return (
+        <div className="bg-gray-50 p-4 rounded-lg">
+            <p className="text-sm text-gray-500 font-medium">{title}</p>
+            <div className="flex items-end justify-between mt-2">
+                <p className="text-2xl font-bold text-gray-800">{formatCurrency(current)}</p>
+                <div className={`flex items-center text-sm font-semibold ${isIncrease ? 'text-green-600' : 'text-red-600'}`}>
+                    {isIncrease ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
+                    <span>{percentageChange.toFixed(1)}%</span>
+                </div>
+            </div>
+            <p className="text-xs text-gray-400 mt-1">Önceki dönem: {formatCurrency(previous)}</p>
+        </div>
+    );
+};
+
+const ChartContainer = ({ title, icon: Icon, children }) => (
+    <div className="bg-gray-50 p-4 rounded-lg">
+        <h3 className="font-semibold mb-3 flex items-center gap-2"><Icon size={18}/> {title}</h3>
+        <div style={{ width: '100%', height: 240 }}>
+            <ResponsiveContainer>{children}</ResponsiveContainer>
+        </div>
+    </div>
+);
+
+const CameraScanner = ({ onScanSuccess, onClose }) => {
+    const scannerRef = useRef(null);
+
+    useEffect(() => {
+        const scriptId = 'html5-qrcode-script';
+
+        const initializeScanner = () => {
+            if (!window.Html5Qrcode) {
+                toast.error("Barkod okuyucu kütüphanesi yüklenemedi.");
+                onClose();
+                return;
+            }
+            if (scannerRef.current) return;
+            
+            const scanner = new window.Html5Qrcode("barcode-scanner-container");
+            scannerRef.current = scanner;
+            let isScanning = true;
+
+            scanner.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: { width: 250, height: 150 } },
+                (decodedText, decodedResult) => {
+                    if (isScanning) {
+                        isScanning = false;
+                        onScanSuccess(decodedText);
+                    }
+                },
+                (errorMessage) => { /* ignore */ }
+            ).catch(err => {
+                toast.error("Kamera başlatılamadı. Lütfen tarayıcı izinlerini kontrol edin.");
+                onClose();
+            });
+        };
+
+        if (typeof window.Html5Qrcode !== 'undefined') {
+            initializeScanner();
+        } else if (!document.getElementById(scriptId)) {
+            const script = document.createElement('script');
+            script.id = scriptId;
+            script.src = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
+            script.async = true;
+            script.onload = initializeScanner;
+            script.onerror = () => {
+                toast.error("Barkod okuyucu betiği yüklenemedi.");
+                onClose();
+            };
+            document.body.appendChild(script);
+        }
+
+        return () => {
+            if (scannerRef.current && scannerRef.current.isScanning) {
+                scannerRef.current.stop().catch(err => {
+                    console.error("Tarayıcı durdurulurken hata oluştu, yoksayılıyor.", err);
+                });
+                scannerRef.current = null;
+            }
+        };
+    }, [onScanSuccess, onClose]);
+
+    return (
+        <div className="fixed inset-0 bg-black/80 flex flex-col items-center justify-center z-50 p-4">
+            <div id="barcode-scanner-container" className="w-full max-w-md bg-white rounded-lg overflow-hidden aspect-video"></div>
+            <button onClick={onClose} className="mt-4 bg-white text-black px-4 py-2 rounded-lg font-semibold flex items-center gap-2">
+                <X size={18} /> Kapat
+            </button>
+        </div>
+    );
+};
+
+
+const FormInput = ({ label, id, required, children }) => (
+    <div className="rounded-lg bg-gray-50 p-3">
+        <label htmlFor={id} className="block text-xs font-medium text-gray-500">
+            {label}{required && <span className="text-red-500"> *</span>}
+        </label>
+        <div className="mt-1">
+            {children}
+        </div>
+    </div>
+);
+
+const StatCard = ({ title, value, icon: Icon }) => ( <div className="bg-gray-50 p-4 rounded-lg flex items-center gap-4"> <div className="bg-indigo-100 text-indigo-600 p-3 rounded-full"> <Icon size={24} /> </div> <div> <p className="text-sm text-gray-500">{title}</p> <p className="text-2xl font-bold text-gray-800">{value}</p> </div> </div> );
 const LoadingSpinner = ({ fullPage = false, message = '' }) => ( <div className={`flex flex-col justify-center items-center ${fullPage ? 'h-screen' : 'h-full py-10'}`}> <Loader2 className="w-10 h-10 text-indigo-600 animate-spin" /> {message && <p className="mt-4 text-gray-600">{message}</p>} </div> );
 const EmptyState = ({ icon, message, description }) => ( <div className="text-center py-10 px-4"> <div className="text-gray-400 mb-3">{icon}</div> <h3 className="font-semibold text-lg text-gray-700">{message}</h3> <p className="text-sm text-gray-500 mt-1">{description}</p> </div> );
