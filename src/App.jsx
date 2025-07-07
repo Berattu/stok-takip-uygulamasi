@@ -4,7 +4,7 @@ import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, si
 import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, collection, onSnapshot, increment, addDoc, serverTimestamp, query, orderBy, writeBatch } from 'firebase/firestore';
 import { Toaster, toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { LogIn, UserPlus, LogOut, ShoppingCart, Package, History, Loader2, Search, Edit, Trash2, AlertTriangle, PlusCircle, Building, LayoutDashboard, DollarSign, PackageSearch, TrendingUp, Camera, X, PlusSquare, BarChart3, Calendar, ArrowUp, ArrowDown, PieChart as PieIcon, Clock, UserCheck, BookUser, CheckCircle, CreditCard, Moon, Sun, Palette } from 'lucide-react';
+import { LogIn, UserPlus, LogOut, ShoppingCart, Package, History, Loader2, Search, Edit, Trash2, AlertTriangle, PlusCircle, Building, LayoutDashboard, DollarSign, PackageSearch, TrendingUp, Camera, X, PlusSquare, BarChart3, Calendar, ArrowUp, ArrowDown, PieChart as PieIcon, Clock, UserCheck, BookUser, CheckCircle, CreditCard, Download } from 'lucide-react';
 
 // --- Firebase Yapılandırması ---
 const firebaseConfig = {
@@ -27,57 +27,25 @@ try {
     console.error("Firebase initialization failed:", e);
 }
 
-// --- Tema Renk Paletleri ---
-const themes = {
-  teal: { 100: '#ccfbf1', 400: '#2dd4bf', 500: '#14b8a6', 600: '#0d9488', 700: '#0f766e', 900: '#134e4a' },
-  blue: { 100: '#dbeafe', 400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 900: '#1e3a8a' },
-  rose: { 100: '#ffe4e6', 400: '#fb7185', 500: '#f43f5e', 600: '#e11d48', 700: '#be123c', 900: '#881337' },
-  indigo: { 100: '#e0e7ff', 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca', 900: '#312e81' },
-};
-
-// --- Tema Yönetimi (Context) ---
-const ThemeContext = createContext();
-
-const ThemeProvider = ({ children }) => {
-    const [mode, setMode] = useState(() => localStorage.getItem('theme_mode') || 'light');
-    const [color, setColor] = useState(() => localStorage.getItem('theme_color') || 'teal');
-
-    useEffect(() => {
-        const root = window.document.documentElement;
-        root.classList.remove('light', 'dark');
-        root.classList.add(mode);
-        localStorage.setItem('theme_mode', mode);
-    }, [mode]);
-
-    useEffect(() => {
-        const root = window.document.documentElement;
-        const selectedTheme = themes[color] || themes.teal;
-        for (const [shade, hex] of Object.entries(selectedTheme)) {
-            root.style.setProperty(`--color-primary-${shade}`, hex);
-        }
-        localStorage.setItem('theme_color', color);
-    }, [color]);
-
-    const toggleMode = () => setMode(prevMode => prevMode === 'light' ? 'dark' : 'light');
-
-    return (
-        <ThemeContext.Provider value={{ mode, toggleMode, color, setColor }}>
-            {children}
-        </ThemeContext.Provider>
-    );
-};
-
 // --- Yardımcı Fonksiyonlar ---
 const formatCurrency = (value) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value || 0);
 
 // --- Ana Uygulama Bileşeni ---
 export default function App() {
     return (
-        <ThemeProvider>
+        <>
             <style>
                 {`
                     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
                     body { font-family: 'Inter', sans-serif; }
+                    :root {
+                        --color-primary-100: #ccfbf1;
+                        --color-primary-400: #2dd4bf;
+                        --color-primary-500: #14b8a6;
+                        --color-primary-600: #0d9488;
+                        --color-primary-700: #0f766e;
+                        --color-primary-900: #134e4a;
+                    }
                     .fade-in {
                         animation: fadeInAnimation ease 0.5s;
                         animation-iteration-count: 1;
@@ -90,21 +58,18 @@ export default function App() {
                     /* Custom Scrollbar Styling */
                     ::-webkit-scrollbar { width: 8px; }
                     ::-webkit-scrollbar-track { background: transparent; }
-                    .dark ::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
-                    .dark ::-webkit-scrollbar-thumb:hover { background: #5a6a82; }
-                    .light ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-                    .light ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+                    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+                    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
                 `}
             </style>
             <MainApp />
-        </ThemeProvider>
+        </>
     );
 }
 
 const MainApp = () => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
-    const { mode } = useContext(ThemeContext);
 
     useEffect(() => {
         if (!auth) { setLoading(false); return; }
@@ -119,7 +84,7 @@ const MainApp = () => {
 
     return (
         <>
-            <Toaster richColors position="top-right" theme={mode} />
+            <Toaster richColors position="top-right" theme="light" />
             <div className="fade-in">
                 {user ? <StockApp user={user} /> : <AuthPage />}
             </div>
@@ -156,29 +121,29 @@ const AuthPage = () => {
     };
 
     return (
-        <div className="min-h-screen bg-slate-100 dark:bg-slate-900 flex flex-col justify-center items-center p-4 transition-colors">
+        <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4 transition-colors">
             <div className="max-w-md w-full mx-auto">
                 <div className="text-center mb-8">
                     <Building className="mx-auto h-12 w-auto text-[--color-primary-600]" />
-                    <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-100 mt-4">Stok Takip Sistemine Hoş Geldiniz</h1>
-                    <p className="text-slate-500 dark:text-slate-400 mt-2">Lütfen hesabınıza giriş yapın veya yeni bir hesap oluşturun.</p>
+                    <h1 className="text-3xl font-bold text-slate-900 mt-4">Stok Takip Sistemine Hoş Geldiniz</h1>
+                    <p className="text-slate-500 mt-2">Lütfen hesabınıza giriş yapın veya yeni bir hesap oluşturun.</p>
                 </div>
-                <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-lg">
+                <div className="bg-white p-8 rounded-2xl shadow-lg">
                     <form onSubmit={handleAuthAction} className="space-y-4">
                         <div>
-                            <label htmlFor="email" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">E-posta Adresi</label>
-                            <input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" />
+                            <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1">E-posta Adresi</label>
+                            <input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white text-slate-900" />
                         </div>
                          <div>
-                            <label htmlFor="password"  className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Şifre</label>
-                            <input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" />
+                            <label htmlFor="password"  className="block text-sm font-medium text-slate-700 mb-1">Şifre</label>
+                            <input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white text-slate-900" />
                         </div>
                         <button type="submit" disabled={isLoading} className="w-full bg-[--color-primary-600] text-white font-bold py-2.5 px-4 rounded-lg hover:bg-[--color-primary-700] transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50">
                             {isLoading ? <Loader2 className="animate-spin" /> : (isLogin ? <LogIn size={20} /> : <UserPlus size={20} />)}
                             <span>{isLogin ? 'Giriş Yap' : 'Kayıt Ol'}</span>
                         </button>
                     </form>
-                    <p className="text-center text-sm text-slate-600 dark:text-slate-400 mt-6">
+                    <p className="text-center text-sm text-slate-600 mt-6">
                         {isLogin ? "Hesabınız yok mu?" : "Zaten bir hesabınız var mı?"}
                         <button onClick={() => setIsLogin(!isLogin)} className="font-semibold text-[--color-primary-600] hover:text-[--color-primary-500] ml-1">
                             {isLogin ? 'Kayıt Olun' : 'Giriş Yapın'}
@@ -248,7 +213,7 @@ const StockApp = ({ user }) => {
     }, [productsPath]);
 
     return (
-        <div className="bg-slate-100 dark:bg-slate-900 min-h-screen font-sans text-slate-800 dark:text-slate-200 transition-colors">
+        <div className="bg-slate-100 min-h-screen font-sans text-slate-800 transition-colors">
             <div className="container mx-auto p-4 md:p-6 max-w-7xl">
                 <Header userEmail={user.email} />
                 <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -256,8 +221,8 @@ const StockApp = ({ user }) => {
                         <InstantSaleSection products={products} productsPath={productsPath} salesPath={salesPath} />
                         <AddProductSection onAdd={handleAddOrUpdateProduct} products={products} />
                     </div>
-                    <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-4 sm:p-6 rounded-2xl shadow-lg">
-                        <Tabs activeTab={activeTab} setActiveTab={setActiveTab} />
+                    <div className="lg:col-span-2 bg-white p-4 sm:p-6 rounded-2xl shadow-lg">
+                        <Tabs activeTab={activeTab} setActiveTab={setActiveTab} products={products} sales={sales} />
                         <div className="fade-in">
                             {activeTab === 'dashboard' && <Dashboard products={products} sales={sales} />}
                             {activeTab === 'statistics' && <StatisticsPage sales={sales} />}
@@ -273,58 +238,14 @@ const StockApp = ({ user }) => {
 };
 
 // --- Child Components ---
-const ThemeSwitcher = () => {
-    const { color, setColor } = useContext(ThemeContext);
-    const [isOpen, setIsOpen] = useState(false);
-  
-    const themeOptions = [
-      { name: 'teal', bg: '#14b8a6' },
-      { name: 'blue', bg: '#3b82f6' },
-      { name: 'rose', bg: '#f43f5e' },
-      { name: 'indigo', bg: '#6366f1' },
-    ];
-  
-    return (
-      <div className="relative">
-        <button 
-            onClick={() => setIsOpen(!isOpen)} 
-            className="p-2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
-            title="Temayı Değiştir"
-        >
-          <Palette size={20} />
-        </button>
-        {isOpen && (
-          <div className="absolute top-full right-0 mt-2 p-2 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 flex gap-2">
-            {themeOptions.map(option => (
-              <button
-                key={option.name}
-                onClick={() => { setColor(option.name); setIsOpen(false); }}
-                className={`w-8 h-8 rounded-full transition-transform hover:scale-110 ${color === option.name ? 'ring-2 ring-offset-2 ring-offset-white dark:ring-offset-slate-800 ring-[--color-primary-500]' : ''}`}
-                style={{ backgroundColor: option.bg }}
-                title={option.name.charAt(0).toUpperCase() + option.name.slice(1)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
 const Header = ({ userEmail }) => {
-    const { mode, toggleMode } = useContext(ThemeContext);
     return (
         <header className="text-center mb-6 md:mb-8 relative">
-            <h1 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">Stok Takip Sistemi</h1>
+            <h1 className="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight">Stok Takip Sistemi</h1>
             <div className="flex items-center justify-center gap-4 mt-3">
-                <p className="text-sm text-slate-500 dark:text-slate-400">Giriş yapıldı: <span className="font-medium text-slate-700 dark:text-slate-300">{userEmail}</span></p>
-                <button onClick={() => signOut(auth)} className="text-sm text-[--color-primary-600] dark:text-[--color-primary-500] hover:text-[--color-primary-700] dark:hover:text-[--color-primary-400] font-semibold flex items-center gap-1.5">
+                <p className="text-sm text-slate-500">Giriş yapıldı: <span className="font-medium text-slate-700">{userEmail}</span></p>
+                <button onClick={() => signOut(auth)} className="text-sm text-[--color-primary-600] hover:text-[--color-primary-700] font-semibold flex items-center gap-1.5">
                     <LogOut size={14} /> Çıkış Yap
-                </button>
-            </div>
-            <div className="absolute top-0 right-0 flex items-center gap-2">
-                <ThemeSwitcher />
-                <button onClick={toggleMode} className="p-2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors" title="Gece/Gündüz Modu">
-                    {mode === 'light' ? <Moon size={20} /> : <Sun size={20} />}
                 </button>
             </div>
         </header>
@@ -406,21 +327,21 @@ const InstantSaleSection = ({ products, productsPath, salesPath }) => {
     };
 
     return (
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-lg flex flex-col gap-4">
-            <h2 className="text-xl font-semibold flex items-center gap-2 text-slate-800 dark:text-slate-200"><ShoppingCart size={22} /> Hızlı İşlemler</h2>
+        <div className="bg-white p-6 rounded-2xl shadow-lg flex flex-col gap-4">
+            <h2 className="text-xl font-semibold flex items-center gap-2 text-slate-800"><ShoppingCart size={22} /> Hızlı İşlemler</h2>
             
             <form onSubmit={handleCashSale}>
-                <div className="rounded-lg bg-slate-100 dark:bg-slate-700 p-3">
-                    <label htmlFor="barcode-input" className="block text-xs font-medium text-slate-500 dark:text-slate-400">Nakit Satış (Barkod Okut/Gir + Enter)</label>
+                <div className="rounded-lg bg-slate-100 p-3">
+                    <label htmlFor="barcode-input" className="block text-xs font-medium text-slate-500">Nakit Satış (Barkod Okut/Gir + Enter)</label>
                     <div className="flex items-center gap-2 mt-1">
-                        <input ref={inputRef} autoFocus id="barcode-input" type="text" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Nakit satış için okutun..." className="block w-full border-0 bg-transparent p-0 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-0 sm:text-sm"/>
-                        <button type="button" onClick={() => setShowScanner(true)} className="p-2 text-slate-500 dark:text-slate-400 hover:text-[--color-primary-600] dark:hover:text-[--color-primary-500]" title="Kamera ile Tara"> <Camera size={20} /> </button>
+                        <input ref={inputRef} autoFocus id="barcode-input" type="text" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Nakit satış için okutun..." className="block w-full border-0 bg-transparent p-0 text-slate-900 placeholder:text-slate-400 focus:ring-0 sm:text-sm"/>
+                        <button type="button" onClick={() => setShowScanner(true)} className="p-2 text-slate-500 hover:text-[--color-primary-600]" title="Kamera ile Tara"> <Camera size={20} /> </button>
                     </div>
                 </div>
             </form>
             
-            <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
-                <p className="text-center text-sm text-slate-500 dark:text-slate-400 mb-3">Veya Diğer İşlem Türünü Seçin:</p>
+            <div className="border-t border-slate-200 pt-4">
+                <p className="text-center text-sm text-slate-500 mb-3">Veya Diğer İşlem Türünü Seçin:</p>
                 <div className="grid grid-cols-2 gap-3">
                     <button onClick={handleCashSale} className="w-full bg-green-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2">
                         <DollarSign size={18} /> Nakit Sat
@@ -496,13 +417,13 @@ const TransactionModal = ({ type, onClose, products, processTransaction }) => {
 
     return (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
                 <h3 className={`text-xl font-semibold mb-4 flex items-center gap-2 text-${typeConfig.color}`}>
                     <typeConfig.icon size={22} /> {typeConfig.title}
                 </h3>
                 <form onSubmit={handleSubmit}>
-                    <div className="rounded-lg bg-slate-100 dark:bg-slate-700 p-3">
-                        <label htmlFor="modal-barcode-input" className="block text-xs font-medium text-slate-500 dark:text-slate-400">Ürün Barkodu</label>
+                    <div className="rounded-lg bg-slate-100 p-3">
+                        <label htmlFor="modal-barcode-input" className="block text-xs font-medium text-slate-500">Ürün Barkodu</label>
                         <div className="flex items-center gap-2 mt-1">
                             <input 
                                 ref={inputRef} 
@@ -512,13 +433,13 @@ const TransactionModal = ({ type, onClose, products, processTransaction }) => {
                                 value={barcode} 
                                 onChange={(e) => setBarcode(e.target.value)} 
                                 placeholder="Barkodu okutun veya girin..." 
-                                className="block w-full border-0 bg-transparent p-0 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-0 sm:text-sm"
+                                className="block w-full border-0 bg-transparent p-0 text-slate-900 placeholder:text-slate-400 focus:ring-0 sm:text-sm"
                             />
-                            <button type="button" onClick={() => setShowScanner(true)} className="p-2 text-slate-500 dark:text-slate-400 hover:text-[--color-primary-600] dark:hover:text-[--color-primary-500]" title="Kamera ile Tara"> <Camera size={20} /> </button>
+                            <button type="button" onClick={() => setShowScanner(true)} className="p-2 text-slate-500 hover:text-[--color-primary-600]" title="Kamera ile Tara"> <Camera size={20} /> </button>
                         </div>
                     </div>
                     <div className="flex justify-end space-x-3 mt-4">
-                        <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 font-semibold text-sm">İptal</button>
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-200 text-slate-800 rounded-lg hover:bg-slate-300 font-semibold text-sm">İptal</button>
                         <button type="submit" className={`px-4 py-2 bg-${typeConfig.color} text-white rounded-lg hover:bg-opacity-90 font-semibold text-sm`}>İşlemi Tamamla</button>
                     </div>
                 </form>
@@ -552,31 +473,132 @@ const AddProductSection = ({ onAdd, products }) => {
         setShowScanner(false);
     };
 
-    return ( <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-lg"> <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-slate-800 dark:text-slate-200"><Package size={22} /> Ürün Yönetimi</h2> <form onSubmit={handleSubmit} className="space-y-4">
+    return ( <div className="bg-white p-6 rounded-2xl shadow-lg"> <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-slate-800"><Package size={22} /> Ürün Yönetimi</h2> <form onSubmit={handleSubmit} className="space-y-4">
         <FormInput label="Ürün Adı" id="name" required>
-            <input type="text" name="name" id="name" value={product.name} onChange={(e) => setProduct({...product, name: e.target.value})} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" placeholder="Örn: Kutu Süt"/>
+            <input type="text" name="name" id="name" value={product.name} onChange={(e) => setProduct({...product, name: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white text-slate-900" placeholder="Örn: Kutu Süt"/>
         </FormInput>
         <FormInput label="Barkod Numarası" id="barcode" required>
             <div className="flex items-center gap-2">
-                <input type="text" name="barcode" id="barcode" value={product.barcode} onChange={(e) => setProduct({...product, barcode: e.target.value})} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" placeholder="Okutun veya manuel girin"/>
-                <button type="button" onClick={() => setShowScanner(true)} className="p-2 text-slate-500 dark:text-slate-400 hover:text-[--color-primary-600] dark:hover:text-[--color-primary-500]" title="Kamera ile Tara">
+                <input type="text" name="barcode" id="barcode" value={product.barcode} onChange={(e) => setProduct({...product, barcode: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white text-slate-900" placeholder="Okutun veya manuel girin"/>
+                <button type="button" onClick={() => setShowScanner(true)} className="p-2 text-slate-500 hover:text-[--color-primary-600]" title="Kamera ile Tara">
                     <Camera size={20} />
                 </button>
             </div>
         </FormInput>
-        <FormInput label="Stok Adedi" id="stock" required><input type="number" name="stock" id="stock" value={product.stock} onChange={(e) => setProduct({...product, stock: e.target.value})} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" placeholder="0" min="0"/></FormInput>
+        <FormInput label="Stok Adedi" id="stock" required><input type="number" name="stock" id="stock" value={product.stock} onChange={(e) => setProduct({...product, stock: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white text-slate-900" placeholder="0" min="0"/></FormInput>
         <div className="grid grid-cols-2 gap-4">
-            <FormInput label="Alış Fiyatı (₺)" id="purchasePrice" required><input type="number" name="purchasePrice" id="purchasePrice" value={product.purchasePrice} onChange={(e) => setProduct({...product, purchasePrice: e.target.value})} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" placeholder="0.00" min="0" step="0.01"/></FormInput>
-            <FormInput label="Satış Fiyatı (₺)" id="salePrice" required><input type="number" name="salePrice" id="salePrice" value={product.salePrice} onChange={(e) => setProduct({...product, salePrice: e.target.value})} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" placeholder="0.00" min="0" step="0.01"/></FormInput>
+            <FormInput label="Alış Fiyatı (₺)" id="purchasePrice" required><input type="number" name="purchasePrice" id="purchasePrice" value={product.purchasePrice} onChange={(e) => setProduct({...product, purchasePrice: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white text-slate-900" placeholder="0.00" min="0" step="0.01"/></FormInput>
+            <FormInput label="Satış Fiyatı (₺)" id="salePrice" required><input type="number" name="salePrice" id="salePrice" value={product.salePrice} onChange={(e) => setProduct({...product, salePrice: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white text-slate-900" placeholder="0.00" min="0" step="0.01"/></FormInput>
         </div>
-        <FormInput label="Kategori" id="category"><input type="text" name="category" id="category" value={product.category} onChange={(e) => setProduct({...product, category: e.target.value})} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" placeholder="Örn: İçecek"/></FormInput>
+        <FormInput label="Kategori" id="category"><input type="text" name="category" id="category" value={product.category} onChange={(e) => setProduct({...product, category: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] transition bg-white text-slate-900" placeholder="Örn: İçecek"/></FormInput>
         <button type="submit" className="w-full bg-[--color-primary-600] text-white font-bold py-2.5 px-4 rounded-lg hover:bg-[--color-primary-700] transition-all duration-300 flex items-center justify-center gap-2"> <PlusCircle size={20} /> <span>Ürünü Ekle / Güncelle</span> </button>
     </form>
     {showScanner && <CameraScanner onScanSuccess={onBarcodeScan} onClose={() => setShowScanner(false)} />}
     </div> );
 };
 
-const Tabs = ({ activeTab, setActiveTab }) => { const tabData = [ { id: 'dashboard', label: 'Gösterge Paneli', icon: LayoutDashboard }, { id: 'statistics', label: 'İstatistikler', icon: BarChart3 }, { id: 'stock', label: 'Stok Listesi', icon: Package }, { id: 'credit', label: 'Veresiye', icon: BookUser }, { id: 'history', label: 'Satış Geçmişi', icon: History } ]; return ( <div className="border-b border-slate-200 dark:border-slate-700 mb-4"> <nav className="-mb-px flex space-x-2 sm:space-x-6 overflow-x-auto" aria-label="Tabs"> {tabData.map(tab => ( <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 whitespace-nowrap py-2 px-2 sm:px-3 border-b-2 font-medium text-sm transition-colors duration-200 ${activeTab === tab.id ? 'border-teal-500 text-teal-600 dark:text-teal-500' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600'}`}> <tab.icon size={16} /><span>{tab.label}</span> </button> ))} </nav> </div> ); };
+const Tabs = ({ activeTab, setActiveTab, products, sales }) => { 
+    const tabData = [ 
+        { id: 'dashboard', label: 'Gösterge Paneli', icon: LayoutDashboard }, 
+        { id: 'statistics', label: 'İstatistikler', icon: BarChart3 }, 
+        { id: 'stock', label: 'Stok Listesi', icon: Package }, 
+        { id: 'credit', label: 'Veresiye', icon: BookUser }, 
+        { id: 'history', label: 'Satış Geçmişi', icon: History } 
+    ]; 
+
+    const handleExport = (type) => {
+        try {
+            let data, headers, filename;
+            const DELIMITER = ';';
+
+            const escapeCsvField = (field) => {
+                let strField = String(field === null || field === undefined ? '' : field);
+                if (strField.includes(DELIMITER) || strField.includes('"') || strField.includes('\n')) {
+                    strField = strField.replace(/"/g, '""');
+                    return `"${strField}"`;
+                }
+                return strField;
+            };
+
+            if (type === 'stock') {
+                if (!products || products.length === 0) {
+                    toast.info("Dışa aktarılacak ürün verisi bulunmuyor.");
+                    return;
+                }
+                filename = 'stok-raporu.csv';
+                headers = ['Barkod', 'Urun Adi', 'Kategori', 'Stok Adedi', 'Alis Fiyati (TL)', 'Satis Fiyati (TL)'];
+                data = products.map(p => [
+                    p.barcode || '',
+                    p.name || '',
+                    p.category || '',
+                    p.stock || 0,
+                    String(p.purchasePrice || 0).replace('.', ','),
+                    String(p.salePrice || 0).replace('.', ',')
+                ]);
+            } else if (type === 'history') {
+                if (!sales || sales.length === 0) {
+                    toast.info("Dışa aktarılacak satış verisi bulunmuyor.");
+                    return;
+                }
+                filename = 'satis-gecmisi.csv';
+                headers = ['Tarih', 'Islem Turu', 'Odeme Yontemi', 'Urun Adi', 'Adet', 'Toplam Tutar (TL)'];
+                data = sales.flatMap(s => 
+                    (s && s.items && Array.isArray(s.items)) ? s.items.map(item => [
+                        s.saleDate ? s.saleDate.toDate().toLocaleString('tr-TR') : 'Tarih Yok',
+                        s.type || '',
+                        s.paymentMethod || '',
+                        item.name || '',
+                        item.quantity || 0,
+                        String(s.type !== 'personnel' ? (item.price || 0) * (item.quantity || 0) : 0).replace('.', ',')
+                    ]) : []
+                );
+            }
+
+            if (!data || data.length === 0) {
+                toast.info("Dışa aktarılacak veri bulunmuyor.");
+                return;
+            }
+
+            const BOM = "\uFEFF";
+            let csvContent = BOM + headers.join(DELIMITER) + "\n" 
+                + data.map(row => row.map(escapeCsvField).join(DELIMITER)).join("\n");
+            
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", filename);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+            toast.success("Rapor başarıyla indirildi!");
+        } catch (error) {
+            console.error("Dışa aktarma hatası:", error);
+            toast.error("Rapor oluşturulurken bir hata oluştu.");
+        }
+    };
+
+    return ( 
+        <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-700 mb-4"> 
+            <nav className="-mb-px flex space-x-2 sm:space-x-4 overflow-x-auto" aria-label="Tabs"> 
+                {tabData.map(tab => ( 
+                    <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 whitespace-nowrap py-2 px-2 sm:px-3 border-b-2 font-medium text-sm transition-colors duration-200 ${activeTab === tab.id ? 'border-[--color-primary-500] text-[--color-primary-600]' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'}`}> 
+                        <tab.icon size={16} />
+                        <span>{tab.label}</span> 
+                    </button> 
+                ))} 
+            </nav>
+            {(activeTab === 'stock' || activeTab === 'history') && (
+                <button onClick={() => handleExport(activeTab)} className="p-2 ml-4 rounded-full bg-slate-200 hover:bg-slate-300 transition-colors" title="Verileri Dışa Aktar (CSV)">
+                    <Download size={20} />
+                </button>
+            )}
+        </div> 
+    ); 
+};
 
 const Dashboard = ({ products, sales }) => {
     const [timePeriod, setTimePeriod] = useState('daily');
@@ -618,10 +640,10 @@ const Dashboard = ({ products, sales }) => {
     return ( 
         <div className="space-y-6">
             <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Genel Bakış</h3>
-                <div className="flex items-center gap-2 rounded-lg bg-slate-100 dark:bg-slate-700 p-1">
+                <h3 className="text-lg font-semibold text-slate-800">Genel Bakış</h3>
+                <div className="flex items-center gap-2 rounded-lg bg-slate-100 p-1">
                     {Object.keys(periodLabels).map(period => (
-                        <button key={period} onClick={() => setTimePeriod(period)} className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${timePeriod === period ? 'bg-white dark:bg-slate-800 text-teal-600 dark:text-teal-500 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'}`}>
+                        <button key={period} onClick={() => setTimePeriod(period)} className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${timePeriod === period ? 'bg-white text-[--color-primary-600] shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>
                             {periodLabels[period]}
                         </button>
                     ))}
@@ -633,19 +655,19 @@ const Dashboard = ({ products, sales }) => {
                 <StatCard title={`${periodLabels[timePeriod]} Kart Ciro`} value={formatCurrency(periodCardRevenue)} icon={CreditCard} />
             </div>
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-slate-100 dark:bg-slate-700/50 p-4 rounded-lg">
-                    <h3 className="font-semibold mb-3 flex items-center gap-2 text-slate-800 dark:text-slate-200"><Package size={18}/> Toplam Stok Değeri</h3>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-white">{formatCurrency(totalStockValue)}</p>
+                <div className="bg-slate-100 p-4 rounded-lg">
+                    <h3 className="font-semibold mb-3 flex items-center gap-2 text-slate-800"><Package size={18}/> Toplam Stok Değeri</h3>
+                    <p className="text-2xl font-bold text-slate-900">{formatCurrency(totalStockValue)}</p>
                 </div>
-                 <div className="bg-slate-100 dark:bg-slate-700/50 p-4 rounded-lg">
-                    <h3 className="font-semibold mb-3 flex items-center gap-2 text-slate-800 dark:text-slate-200"><PackageSearch size={18}/> Stoğu Azalan Ürünler</h3>
+                 <div className="bg-slate-100 p-4 rounded-lg">
+                    <h3 className="font-semibold mb-3 flex items-center gap-2 text-slate-800"><PackageSearch size={18}/> Stoğu Azalan Ürünler</h3>
                     <div className="space-y-2 max-h-40 overflow-y-auto">
                         {lowStockProducts.length > 0 ? lowStockProducts.map(p => (
                             <div key={p.id} className="flex justify-between items-center text-sm">
-                                <span className="truncate text-slate-700 dark:text-slate-300">{p.name}</span>
+                                <span className="truncate text-slate-700">{p.name}</span>
                                 <span className="font-bold text-red-600">{p.stock} adet</span>
                             </div>
-                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">Kritik stokta ürün yok.</p>}
+                        )) : <p className="text-sm text-slate-500">Kritik stokta ürün yok.</p>}
                     </div>
                 </div>
             </div>
@@ -655,8 +677,7 @@ const Dashboard = ({ products, sales }) => {
 
 const StatisticsPage = ({ sales }) => {
     const [timePeriod, setTimePeriod] = useState('weekly');
-    const { mode } = useContext(ThemeContext);
-
+    
     const {
         currentPeriod,
         previousPeriod,
@@ -775,17 +796,17 @@ const StatisticsPage = ({ sales }) => {
     
     const PIE_COLORS = ['#14b8a6', '#0ea5e9', '#f97316', '#ec4899', '#8b5cf6', '#a8a29e'];
     const periodLabels = { daily: 'Günlük', weekly: 'Haftalık', monthly: 'Aylık', yearly: 'Yıllık' };
-    const tickColor = mode === 'dark' ? '#94a3b8' : '#64748b';
-    const gridColor = mode === 'dark' ? '#334155' : '#e2e8f0';
+    const tickColor = '#64748b';
+    const gridColor = '#e2e8f0';
 
 
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200">İstatistikler</h3>
-                <div className="flex items-center gap-2 rounded-lg bg-slate-100 dark:bg-slate-700 p-1">
+                <h3 className="text-lg font-semibold text-slate-800">İstatistikler</h3>
+                <div className="flex items-center gap-2 rounded-lg bg-slate-100 p-1">
                     {Object.keys(periodLabels).map(period => (
-                        <button key={period} onClick={() => setTimePeriod(period)} className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${timePeriod === period ? 'bg-white dark:bg-slate-800 text-teal-600 dark:text-teal-500 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'}`}>
+                        <button key={period} onClick={() => setTimePeriod(period)} className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${timePeriod === period ? 'bg-white text-[--color-primary-600] shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>
                             {periodLabels[period]}
                         </button>
                     ))}
@@ -801,10 +822,7 @@ const StatisticsPage = ({ sales }) => {
                         <XAxis dataKey="name" tick={{fontSize: 12, fill: tickColor}} />
                         <YAxis tickFormatter={(value) => formatCurrency(value).replace('₺','')} tick={{fontSize: 10, fill: tickColor}}/>
                         <Tooltip
-                            contentStyle={{
-                                backgroundColor: mode === 'dark' ? '#1e293b' : '#ffffff',
-                                borderColor: mode === 'dark' ? '#334155' : '#e2e8f0'
-                            }}
+                            contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0' }}
                             formatter={(value) => [formatCurrency(value), 'Ciro']}
                         />
                         <Bar dataKey="Ciro" fill="#8b5cf6" />
@@ -817,10 +835,7 @@ const StatisticsPage = ({ sales }) => {
                         <XAxis dataKey="name" tick={{fontSize: 10, fill: tickColor}} angle={-45} textAnchor="end" height={40} interval={0} />
                         <YAxis tickFormatter={(value) => formatCurrency(value).replace('₺','')} tick={{fontSize: 10, fill: tickColor}}/>
                         <Tooltip
-                             contentStyle={{
-                                backgroundColor: mode === 'dark' ? '#1e293b' : '#ffffff',
-                                borderColor: mode === 'dark' ? '#334155' : '#e2e8f0'
-                            }}
+                             contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0' }}
                             formatter={(value) => [formatCurrency(value), 'Ciro']}
                         />
                         <Bar dataKey="Ciro" fill="#ec4899" />
@@ -835,13 +850,10 @@ const StatisticsPage = ({ sales }) => {
                         <XAxis type="number" hide />
                         <YAxis type="category" dataKey="name" width={120} tick={{fontSize: 12, width: 110, fill: tickColor}} interval={0} />
                         <Tooltip
-                            contentStyle={{
-                                backgroundColor: mode === 'dark' ? '#1e293b' : '#ffffff',
-                                borderColor: mode === 'dark' ? '#334155' : '#e2e8f0'
-                            }}
+                            contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0' }}
                             formatter={(value) => [formatCurrency(value), 'Ciro']}
                         />
-                        <Bar dataKey="value" name="Ciro" fill="#f97316" background={{ fill: mode === 'dark' ? '#334155' : '#eee' }} label={{ position: 'right', formatter: (value) => formatCurrency(value), fontSize: 11, fill: mode === 'dark' ? '#f1f5f9' : '#333' }} />
+                        <Bar dataKey="value" name="Ciro" fill="#f97316" background={{ fill: '#eee' }} label={{ position: 'right', formatter: (value) => formatCurrency(value), fontSize: 11, fill: '#333' }} />
                     </BarChart>
                 ) : (
                     <EmptyState icon={<PackageSearch size={30}/>} message="Bu periyotta gösterilecek ürün verisi yok." />
@@ -855,10 +867,7 @@ const StatisticsPage = ({ sales }) => {
                             {paymentMethodData.map((entry, index) => ( <Cell key={`cell-${index}`} fill={['#10b981', '#3b82f6'][index % 2]} /> ))}
                         </Pie>
                         <Tooltip
-                             contentStyle={{
-                                backgroundColor: mode === 'dark' ? '#1e293b' : '#ffffff',
-                                borderColor: mode === 'dark' ? '#334155' : '#e2e8f0'
-                            }}
+                             contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0' }}
                             formatter={(value) => formatCurrency(value)}
                         />
                         <Legend wrapperStyle={{color: tickColor}}/>
@@ -870,10 +879,7 @@ const StatisticsPage = ({ sales }) => {
                             {revenueByProduct.map((entry, index) => ( <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} /> ))}
                         </Pie>
                         <Tooltip
-                             contentStyle={{
-                                backgroundColor: mode === 'dark' ? '#1e293b' : '#ffffff',
-                                borderColor: mode === 'dark' ? '#334155' : '#e2e8f0'
-                            }}
+                             contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0' }}
                             formatter={(value) => formatCurrency(value)}
                         />
                         <Legend wrapperStyle={{color: tickColor}}/>
@@ -882,26 +888,26 @@ const StatisticsPage = ({ sales }) => {
             </div>
              
              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-slate-100 dark:bg-slate-700/50 p-4 rounded-lg">
-                    <h3 className="font-semibold mb-3 flex items-center gap-2 text-slate-800 dark:text-slate-200"><PackageSearch size={18}/> En Çok Satanlar - Adet ({periodLabels[timePeriod]})</h3>
+                <div className="bg-slate-100 p-4 rounded-lg">
+                    <h3 className="font-semibold mb-3 flex items-center gap-2 text-slate-800"><PackageSearch size={18}/> En Çok Satanlar - Adet ({periodLabels[timePeriod]})</h3>
                     <div className="space-y-2 max-h-60 overflow-y-auto">
                         {topSellingByQuantity.length > 0 ? topSellingByQuantity.map(item => (
                             <div key={item.name} className="flex justify-between items-center text-sm">
-                                <span className="truncate text-slate-700 dark:text-slate-300">{item.name}</span>
-                                <span className="font-bold text-teal-600 dark:text-teal-400">{item.quantity} adet</span>
+                                <span className="truncate text-slate-700">{item.name}</span>
+                                <span className="font-bold text-[--color-primary-600]">{item.quantity} adet</span>
                             </div>
-                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">Bu dönemde satış verisi yok.</p>}
+                        )) : <p className="text-sm text-slate-500">Bu dönemde satış verisi yok.</p>}
                     </div>
                 </div>
-                <div className="bg-slate-100 dark:bg-slate-700/50 p-4 rounded-lg">
-                    <h3 className="font-semibold mb-3 flex items-center gap-2 text-slate-800 dark:text-slate-200"><UserCheck size={18}/> Personel Kullanım Özeti ({periodLabels[timePeriod]})</h3>
+                <div className="bg-slate-100 p-4 rounded-lg">
+                    <h3 className="font-semibold mb-3 flex items-center gap-2 text-slate-800"><UserCheck size={18}/> Personel Kullanım Özeti ({periodLabels[timePeriod]})</h3>
                     <div className="space-y-2 max-h-60 overflow-y-auto">
                         {personnelUsageData.length > 0 ? personnelUsageData.map(item => (
                             <div key={item.name} className="flex justify-between items-center text-sm">
-                                <span className="truncate text-slate-700 dark:text-slate-300">{item.name}</span>
-                                <span className="font-bold text-yellow-600 dark:text-yellow-400">{item.quantity} adet</span>
+                                <span className="truncate text-slate-700">{item.name}</span>
+                                <span className="font-bold text-yellow-600">{item.quantity} adet</span>
                             </div>
-                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">Bu dönemde personel kullanımı kaydedilmedi.</p>}
+                        )) : <p className="text-sm text-slate-500">Bu dönemde personel kullanımı kaydedilmedi.</p>}
                     </div>
                 </div>
             </div>
@@ -989,44 +995,44 @@ const ProductList = ({ products, loading, onUpdate, onDelete, productsPath, sale
     if (loading) return <LoadingSpinner />;
     if (products.length === 0 && !searchTerm) return <EmptyState icon={<Package size={40}/>} message="Henüz ürün eklenmemiş." description="Başlamak için sol taraftaki 'Ürün Yönetimi' panelini kullanabilirsiniz." />;
     return ( <div className="space-y-3">
-        <div className="relative"> <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={20} /> <input type="text" placeholder="Ürün adı veya barkod ile ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full px-10 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" /> </div>
+        <div className="relative"> <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} /> <input type="text" placeholder="Ürün adı veya barkod ile ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full px-10 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition bg-white text-slate-900" /> </div>
         {products.length === 0 && searchTerm && ( <EmptyState icon={<Search size={40}/>} message="Arama Sonucu Bulunamadı" description={`'${searchTerm}' için bir sonuç bulunamadı. Lütfen farklı bir anahtar kelime deneyin.`} /> )}
         <div className="max-h-[55vh] overflow-y-auto pr-2 space-y-2 pb-4"> {products.map(p => (
-            <div key={p.id} className="p-3 rounded-lg bg-slate-100 dark:bg-slate-700/50 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+            <div key={p.id} className="p-3 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors">
                 <div className="flex items-center justify-between">
                     <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-slate-800 dark:text-slate-200 truncate flex items-center">{p.name} {p.stock <= 5 && <AlertTriangle size={14} className="ml-2 text-red-500"/>}</p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Barkod: {p.barcode} | Kategori: {p.category || 'Yok'}</p>
-                        <p className="text-xs text-green-700 dark:text-green-500 font-medium">Satış: {formatCurrency(p.salePrice)}</p>
+                        <p className="font-semibold text-slate-800 truncate flex items-center">{p.name} {p.stock <= 5 && <AlertTriangle size={14} className="ml-2 text-red-500"/>}</p>
+                        <p className="text-xs text-slate-500">Barkod: {p.barcode} | Kategori: {p.category || 'Yok'}</p>
+                        <p className="text-xs text-green-700 font-medium">Satış: {formatCurrency(p.salePrice)}</p>
                     </div>
                     <div className="text-right mx-4 w-16 flex-shrink-0">
-                        <p className={`font-bold text-lg ${p.stock > 10 ? 'text-green-600 dark:text-green-400' : p.stock > 5 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-500'}`}>{p.stock}</p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">adet</p>
+                        <p className={`font-bold text-lg ${p.stock > 10 ? 'text-green-600' : p.stock > 5 ? 'text-yellow-600' : 'text-red-600'}`}>{p.stock}</p>
+                        <p className="text-xs text-slate-500">adet</p>
                     </div>
                 </div>
-                <div className="border-t border-slate-200 dark:border-slate-600 mt-2 pt-2 flex items-center justify-end space-x-1 flex-wrap">
-                    <button onClick={() => handleSale(p, 'nakit')} className="p-2 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/50 rounded-md" title="Nakit Sat"><DollarSign size={16} /></button>
-                    <button onClick={() => handleSale(p, 'kart')} className="p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-md" title="Kartla Sat"><CreditCard size={16} /></button>
-                    <div className="border-l border-slate-300 dark:border-slate-600 h-6 mx-1"></div>
-                    <button onClick={() => handleCreditSale(p)} className="p-2 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-md" title="Veresiye Sat"><BookUser size={16} /></button>
-                    <button onClick={() => handlePersonnelUse(p, 1)} className="p-2 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-100 dark:hover:bg-yellow-900/50 rounded-md" title="Personel Kullanımı"><UserCheck size={16} /></button>
-                    <button onClick={() => setStockModalProduct(p)} className="p-2 text-teal-600 dark:text-teal-400 hover:bg-teal-100 dark:hover:bg-teal-900/50 rounded-md" title="Stok Ekle"><PlusSquare size={16} /></button>
-                    <button onClick={() => setEditingProduct(p)} className="p-2 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md" title="Düzenle"><Edit size={16} /></button>
-                    <button onClick={() => toast(`"${p.name}" ürününü silmek istediğinize emin misiniz?`, { action: { label: 'Evet, Sil', onClick: () => onDelete(p.id, p.name) }, cancel: { label: 'İptal' } })} className="p-2 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-md" title="Sil"><Trash2 size={16} /></button>
+                <div className="border-t border-slate-200 mt-2 pt-2 flex items-center justify-end space-x-1 flex-wrap">
+                    <button onClick={() => handleSale(p, 'nakit')} className="p-2 text-green-600 hover:bg-green-100 rounded-md" title="Nakit Sat"><DollarSign size={16} /></button>
+                    <button onClick={() => handleSale(p, 'kart')} className="p-2 text-blue-600 hover:bg-blue-100 rounded-md" title="Kartla Sat"><CreditCard size={16} /></button>
+                    <div className="border-l border-slate-300 h-6 mx-1"></div>
+                    <button onClick={() => handleCreditSale(p)} className="p-2 text-red-600 hover:bg-red-100 rounded-md" title="Veresiye Sat"><BookUser size={16} /></button>
+                    <button onClick={() => handlePersonnelUse(p, 1)} className="p-2 text-yellow-600 hover:bg-yellow-100 rounded-md" title="Personel Kullanımı"><UserCheck size={16} /></button>
+                    <button onClick={() => setStockModalProduct(p)} className="p-2 text-teal-600 hover:bg-teal-100 rounded-md" title="Stok Ekle"><PlusSquare size={16} /></button>
+                    <button onClick={() => setEditingProduct(p)} className="p-2 text-slate-600 hover:bg-slate-200 rounded-md" title="Düzenle"><Edit size={16} /></button>
+                    <button onClick={() => toast(`"${p.name}" ürününü silmek istediğinize emin misiniz?`, { action: { label: 'Evet, Sil', onClick: () => onDelete(p.id, p.name) }, cancel: { label: 'İptal' } })} className="p-2 text-red-600 hover:bg-red-100 rounded-md" title="Sil"><Trash2 size={16} /></button>
                 </div>
             </div>
         ))} </div>
-        {editingProduct && ( <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setEditingProduct(null)}> <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <h3 className="text-xl font-semibold mb-4 text-slate-800 dark:text-slate-200">Ürünü Düzenle</h3>
+        {editingProduct && ( <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setEditingProduct(null)}> <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h3 className="text-xl font-semibold mb-4 text-slate-800">Ürünü Düzenle</h3>
             <form onSubmit={handleUpdateSubmit} className="space-y-3">
-                <FormInput label="Ürün Adı" id="edit-name"><input value={editingProduct.name} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" /></FormInput>
-                <FormInput label="Stok Adedi" id="edit-stock"><input type="number" value={editingProduct.stock} onChange={e => setEditingProduct({...editingProduct, stock: parseInt(e.target.value)})} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" /></FormInput>
+                <FormInput label="Ürün Adı" id="edit-name"><input value={editingProduct.name} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition bg-white text-slate-900" /></FormInput>
+                <FormInput label="Stok Adedi" id="edit-stock"><input type="number" value={editingProduct.stock} onChange={e => setEditingProduct({...editingProduct, stock: parseInt(e.target.value)})} className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition bg-white text-slate-900" /></FormInput>
                 <div className="grid grid-cols-2 gap-3">
-                    <FormInput label="Alış Fiyatı (₺)" id="edit-purchasePrice"><input type="number" value={editingProduct.purchasePrice} onChange={e => setEditingProduct({...editingProduct, purchasePrice: parseFloat(e.target.value)})} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" /></FormInput>
-                    <FormInput label="Satış Fiyatı (₺)" id="edit-salePrice"><input type="number" value={editingProduct.salePrice} onChange={e => setEditingProduct({...editingProduct, salePrice: parseFloat(e.target.value)})} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" /></FormInput>
+                    <FormInput label="Alış Fiyatı (₺)" id="edit-purchasePrice"><input type="number" value={editingProduct.purchasePrice} onChange={e => setEditingProduct({...editingProduct, purchasePrice: parseFloat(e.target.value)})} className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition bg-white text-slate-900" /></FormInput>
+                    <FormInput label="Satış Fiyatı (₺)" id="edit-salePrice"><input type="number" value={editingProduct.salePrice} onChange={e => setEditingProduct({...editingProduct, salePrice: parseFloat(e.target.value)})} className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition bg-white text-slate-900" /></FormInput>
                 </div>
-                <FormInput label="Kategori" id="edit-category"><input value={editingProduct.category || ''} onChange={e => setEditingProduct({...editingProduct, category: e.target.value})} className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" /></FormInput>
-                <div className="flex justify-end space-x-3 mt-2"> <button type="button" onClick={() => setEditingProduct(null)} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500">İptal</button> <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Kaydet</button> </div>
+                <FormInput label="Kategori" id="edit-category"><input value={editingProduct.category || ''} onChange={e => setEditingProduct({...editingProduct, category: e.target.value})} className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition bg-white text-slate-900" /></FormInput>
+                <div className="flex justify-end space-x-3 mt-2"> <button type="button" onClick={() => setEditingProduct(null)} className="px-4 py-2 bg-slate-200 text-slate-800 rounded-lg hover:bg-slate-300">İptal</button> <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Kaydet</button> </div>
             </form>
         </div> </div> )}
         {stockModalProduct && <AddStockModal product={stockModalProduct} onClose={() => setStockModalProduct(null)} onAddStock={handleAddStock} />}
@@ -1049,15 +1055,15 @@ const AddStockModal = ({ product, onClose, onAddStock }) => {
 
     return (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-            <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
-                <h3 className="text-xl font-semibold mb-4 text-slate-800 dark:text-slate-200">Stok Ekle: <span className="font-bold text-teal-600 dark:text-teal-500">{product.name}</span></h3>
+            <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+                <h3 className="text-xl font-semibold mb-4 text-slate-800">Stok Ekle: <span className="font-bold text-teal-600">{product.name}</span></h3>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <FormInput label="Eklenecek Miktar" id="stock-amount">
                         <input
                             type="number"
                             value={amount}
                             onChange={e => setAmount(e.target.value)}
-                            className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition bg-white text-slate-900"
                             placeholder="0"
                             min="1"
                             autoFocus
@@ -1065,7 +1071,7 @@ const AddStockModal = ({ product, onClose, onAddStock }) => {
                         />
                     </FormInput>
                     <div className="flex justify-end space-x-3 pt-2">
-                        <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 font-semibold text-sm">İptal</button>
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-200 text-slate-800 rounded-lg hover:bg-slate-300 font-semibold text-sm">İptal</button>
                         <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm">Ekle</button>
                     </div>
                 </form>
@@ -1099,15 +1105,15 @@ const CreditPage = ({ sales, salesPath, loading }) => {
     return (
         <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-2 pb-4">
             {unpaidCredits.map(s => (
-                <div key={s.id} className="p-3 rounded-lg bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50">
+                <div key={s.id} className="p-3 rounded-lg bg-red-100 hover:bg-red-200">
                     <div className="flex justify-between items-center">
                         <div>
-                            <p className="font-semibold text-slate-800 dark:text-slate-200">{s.items[0].name}</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">{s.saleDate ? s.saleDate.toDate().toLocaleString('tr-TR') : '...'}</p>
+                            <p className="font-semibold text-slate-800">{s.items[0].name}</p>
+                            <p className="text-xs text-slate-500">{s.saleDate ? s.saleDate.toDate().toLocaleString('tr-TR') : '...'}</p>
                         </div>
                         <div className="flex items-center gap-4">
-                            <p className="text-lg font-bold text-red-600 dark:text-red-400">{formatCurrency(s.total)}</p>
-                            <button onClick={() => handleMarkAsPaid(s.id)} className="p-2 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/50 rounded-md" title="Ödeme Alındı Olarak İşaretle">
+                            <p className="text-lg font-bold text-red-600">{formatCurrency(s.total)}</p>
+                            <button onClick={() => handleMarkAsPaid(s.id)} className="p-2 text-green-600 hover:bg-green-100 rounded-md" title="Ödeme Alındı Olarak İşaretle">
                                 <CheckCircle size={20} />
                             </button>
                         </div>
@@ -1141,22 +1147,22 @@ const SalesHistory = ({ sales, loading }) => {
     return (
         <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-2 pb-4">
             {sales.map(s => (
-                <div key={s.id} className="p-3 rounded-lg bg-slate-100 dark:bg-slate-700/50">
+                <div key={s.id} className="p-3 rounded-lg bg-slate-100">
                     <div className="flex justify-between items-start">
                         <div>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">{s.saleDate ? s.saleDate.toDate().toLocaleString('tr-TR') : '...'}</p>
+                            <p className="text-xs text-slate-500">{s.saleDate ? s.saleDate.toDate().toLocaleString('tr-TR') : '...'}</p>
                             {getStatusBadge(s)}
                         </div>
-                        <p className="text-lg font-bold text-green-700 dark:text-green-400">{s.type !== 'personnel' ? formatCurrency(s.total) : ''}</p>
+                        <p className="text-lg font-bold text-green-700">{s.type !== 'personnel' ? formatCurrency(s.total) : ''}</p>
                     </div>
-                    <div className="mt-2 border-t border-slate-200 dark:border-slate-600 pt-2 space-y-1">
+                    <div className="mt-2 border-t border-slate-200 pt-2 space-y-1">
                         {s.items && Array.isArray(s.items) ? (
                             s.items.map((item, index) => (
                                 <div key={index} className="flex justify-between items-center text-sm">
-                                    <p className="text-slate-700 dark:text-slate-300">
+                                    <p className="text-slate-700">
                                         <span className="font-medium">{item.quantity}x</span> {item.name}
                                     </p>
-                                    <p className="text-slate-500 dark:text-slate-400">{s.type !== 'personnel' ? formatCurrency(item.price * item.quantity) : ''}</p>
+                                    <p className="text-slate-500">{s.type !== 'personnel' ? formatCurrency(item.price * item.quantity) : ''}</p>
                                 </div>
                             ))
                         ) : null }
@@ -1172,23 +1178,23 @@ const ComparisonCard = ({ title, current, previous }) => {
     const isIncrease = percentageChange >= 0;
 
     return (
-        <div className="bg-slate-100 dark:bg-slate-700/50 p-4 rounded-lg">
-            <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">{title}</p>
+        <div className="bg-slate-100 p-4 rounded-lg">
+            <p className="text-sm text-slate-500 font-medium">{title}</p>
             <div className="flex items-end justify-between mt-2">
-                <p className="text-2xl font-bold text-slate-800 dark:text-slate-200">{formatCurrency(current)}</p>
-                <div className={`flex items-center text-sm font-semibold ${isIncrease ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                <p className="text-2xl font-bold text-slate-800">{formatCurrency(current)}</p>
+                <div className={`flex items-center text-sm font-semibold ${isIncrease ? 'text-green-600' : 'text-red-600'}`}>
                     {isIncrease ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
                     <span>{percentageChange.toFixed(1)}%</span>
                 </div>
             </div>
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Önceki dönem: {formatCurrency(previous)}</p>
+            <p className="text-xs text-slate-400 mt-1">Önceki dönem: {formatCurrency(previous)}</p>
         </div>
     );
 };
 
 const ChartContainer = ({ title, icon: Icon, children }) => (
-    <div className="bg-slate-100 dark:bg-slate-700/50 p-4 rounded-lg flex flex-col">
-        <h3 className="font-semibold mb-3 flex items-center gap-2 text-slate-800 dark:text-slate-200"><Icon size={18}/> {title}</h3>
+    <div className="bg-slate-100 p-4 rounded-lg flex flex-col">
+        <h3 className="font-semibold mb-3 flex items-center gap-2 text-slate-800"><Icon size={18}/> {title}</h3>
         <div className="flex-grow" style={{ width: '100%', height: 240 }}>
             <ResponsiveContainer>{children}</ResponsiveContainer>
         </div>
@@ -1267,13 +1273,13 @@ const CameraScanner = ({ onScanSuccess, onClose }) => {
 
 const FormInput = ({ label, id, required, children }) => (
     <div>
-        <label htmlFor={id} className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+        <label htmlFor={id} className="block text-sm font-medium text-slate-700 mb-1">
             {label}{required && <span className="text-red-500"> *</span>}
         </label>
         {children}
     </div>
 );
 
-const StatCard = ({ title, value, icon: Icon }) => ( <div className="bg-slate-100 dark:bg-slate-700/50 p-4 rounded-lg flex items-center gap-4"> <div className="bg-teal-100 dark:bg-teal-900/50 text-teal-600 dark:text-teal-400 p-3 rounded-full"> <Icon size={24} /> </div> <div> <p className="text-sm text-slate-500 dark:text-slate-400">{title}</p> <p className="text-2xl font-bold text-slate-800 dark:text-slate-200">{value}</p> </div> </div> );
-const LoadingSpinner = ({ fullPage = false, message = '' }) => ( <div className={`flex flex-col justify-center items-center ${fullPage ? 'h-screen bg-slate-100 dark:bg-slate-900' : 'h-full py-10'}`}> <Loader2 className="w-10 h-10 text-teal-600 dark:text-teal-500 animate-spin" /> {message && <p className="mt-4 text-slate-600 dark:text-slate-400">{message}</p>} </div> );
-const EmptyState = ({ icon, message, description }) => ( <div className="text-center py-10 px-4 flex flex-col items-center justify-center h-full"> <div className="text-slate-400 dark:text-slate-500 mb-3">{icon}</div> <h3 className="font-semibold text-lg text-slate-700 dark:text-slate-300">{message}</h3> {description && <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{description}</p>} </div> );
+const StatCard = ({ title, value, icon: Icon }) => ( <div className="bg-slate-100 p-4 rounded-lg flex items-center gap-4"> <div className="bg-[--color-primary-100] text-[--color-primary-600] p-3 rounded-full"> <Icon size={24} /> </div> <div> <p className="text-sm text-slate-500">{title}</p> <p className="text-2xl font-bold text-slate-800">{value}</p> </div> </div> );
+const LoadingSpinner = ({ fullPage = false, message = '' }) => ( <div className={`flex flex-col justify-center items-center ${fullPage ? 'h-screen bg-slate-100' : 'h-full py-10'}`}> <Loader2 className="w-10 h-10 text-teal-600 animate-spin" /> {message && <p className="mt-4 text-slate-600">{message}</p>} </div> );
+const EmptyState = ({ icon, message, description }) => ( <div className="text-center py-10 px-4 flex flex-col items-center justify-center h-full"> <div className="text-slate-400 mb-3">{icon}</div> <h3 className="font-semibold text-lg text-slate-700">{message}</h3> {description && <p className="text-sm text-slate-500 mt-1">{description}</p>} </div> );
