@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence, browserSessionPersistence, signInWithCustomToken, setLogLevel } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, collection, onSnapshot, increment, addDoc, serverTimestamp, query, orderBy, writeBatch } from 'firebase/firestore';
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence, browserSessionPersistence, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, collection, onSnapshot, increment, addDoc, serverTimestamp, query, orderBy, writeBatch, where, getDocs } from 'firebase/firestore';
 import { Toaster, toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { 
@@ -14,8 +14,16 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 
 // --- Firebase Configuration & Initialization ---
-// Canvas ortamından gelen global değişkenler kullanılıyor.
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const firebaseConfig = {
+  apiKey: "AIzaSyAb0VoKLRJKKgst9DVC_cb2ZU5wchfdTIM",
+  authDomain: "stok-takip-uygulamam-5e4a5.firebaseapp.com",
+  projectId: "stok-takip-uygulamam-5e4a5",
+  storageBucket: "stok-takip-uygulamam-5e4a5.firebasestorage.app",
+  messagingSenderId: "393027640266",
+  appId: "1:393027640266:web:020f72a9a23f3fd5fa4d33",
+  measurementId: "G-SZ4DSQK66C"
+};
+
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
 let app, auth, db;
@@ -23,10 +31,11 @@ try {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
-    // Geliştirme sırasında detaylı logları görmek için
-    // setLogLevel('debug');
 } catch (e) {
     console.error("Firebase initialization failed:", e);
+    if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") {
+        toast.error("Firebase yapılandırması eksik. Lütfen kod içerisindeki yerel geliştirme ayarlarını yapın.");
+    }
 }
 
 // --- Helper Functions ---
@@ -40,47 +49,36 @@ const PageContext = createContext();
 // --- Providers ---
 const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [userId, setUserId] = useState(null);
+    const [authIsReady, setAuthIsReady] = useState(false);
 
     useEffect(() => {
-        // Firebase auth durumundaki değişiklikleri dinleyen listener.
-        // Bu, kullanıcı durumu için tek doğru kaynaktır.
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-            if (currentUser) {
-                setUser(currentUser);
-                setUserId(currentUser.uid);
-            } else {
-                setUser(null);
-                setUserId(null);
-            }
-            // Auth durumu belirlendikten sonra yükleme durumunu kapat.
-            setLoading(false);
+            setUser(currentUser);
+            setAuthIsReady(true);
         });
 
-        // Platform tarafından sağlanan özel token ile oturum açmayı dene.
-        // Bu, iframe ortamlarında oturumun korunması için kritik öneme sahiptir.
         const attemptInitialSignIn = async () => {
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                 try {
-                    // Zaten bir oturum varsa (örneğin HMR sonrası), tekrar deneme.
                     if (!auth.currentUser) {
                         await signInWithCustomToken(auth, __initial_auth_token);
                     }
                 } catch (error) {
                     console.error("Custom token ile giriş başarısız:", error);
                     toast.error("Oturum doğrulanırken bir hata oluştu.");
+                    setAuthIsReady(true);
                 }
+            } else {
+                 setAuthIsReady(true);
             }
         };
         
         attemptInitialSignIn();
 
-        // Component unmount edildiğinde listener'ı temizle.
         return () => unsubscribe();
-    }, []); // Boş dependency array, bu effect'in sadece bir kez çalışmasını sağlar.
+    }, []);
 
-    const value = { user, userId, loading, setLoading };
+    const value = { user, authIsReady };
 
     return (
         <AuthContext.Provider value={value}>
@@ -159,21 +157,24 @@ export default function App() {
 }
 
 const Main = () => {
-    const { user, loading } = useAuth();
+    const { user, authIsReady } = useAuth();
     const { page, setPage } = usePage();
     const { theme } = useTheme();
 
     useEffect(() => {
-        if (!loading) {
+        if (authIsReady) {
             if (user) {
                 setPage('app');
             } else {
                 setPage('landing');
             }
         }
-    }, [user, loading, setPage]);
+    }, [user, authIsReady, setPage]);
 
     const renderPage = () => {
+        if (!authIsReady) {
+            return <LoadingSpinner fullPage={true} message="Oturum durumu kontrol ediliyor..." />;
+        }
         switch (page) {
             case 'app':
                 return <StockApp />;
@@ -441,7 +442,6 @@ const AuthPage = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [rememberMe, setRememberMe] = useState(true);
-    const { setLoading } = useAuth();
     const { setPage } = usePage();
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -452,7 +452,6 @@ const AuthPage = () => {
             return; 
         }
         setIsSubmitting(true);
-        setLoading(true);
         try {
             const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
             await setPersistence(auth, persistence);
@@ -464,11 +463,10 @@ const AuthPage = () => {
                 await createUserWithEmailAndPassword(auth, email, password);
                 toast.success("Hesabınız başarıyla oluşturuldu! Giriş yapılıyor...");
             }
-            // onAuthStateChanged will handle navigation
+            // onAuthStateChanged will handle navigation to the 'app' page
         } catch (error) {
             const errorMessage = error.code.includes('auth/weak-password') ? 'Şifre en az 6 karakter olmalıdır.' : 'Giriş bilgileri hatalı veya kullanıcı bulunamadı.';
             toast.error(errorMessage);
-            setLoading(false);
         } finally {
             setIsSubmitting(false);
         }
@@ -522,7 +520,17 @@ const AuthPage = () => {
 
 // --- Main Stock Application Component ---
 const StockApp = () => {
-    const { user, userId } = useAuth();
+    const { user } = useAuth();
+
+    if (!user) {
+        return <LoadingSpinner fullPage={true} message="Kullanıcı doğrulanıyor..." />;
+    }
+    
+    return <StockAppLayout user={user} />;
+};
+
+const StockAppLayout = ({ user }) => {
+    const userId = user.uid;
     const [products, setProducts] = useState([]);
     const [sales, setSales] = useState([]);
     const [loading, setLoading] = useState({ products: true, sales: true, settings: true });
@@ -531,9 +539,9 @@ const StockApp = () => {
     const [settings, setSettings] = useState({ theme: 'light', palette: 'teal', criticalStockLevel: 5 });
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-    const productsPath = `artifacts/${appId}/users/${userId}/products`;
-    const salesPath = `artifacts/${appId}/users/${userId}/sales`;
-    const settingsPath = `artifacts/${appId}/users/${userId}/settings`;
+    const productsPath = useMemo(() => `artifacts/${appId}/users/${userId}/products`, [userId]);
+    const salesPath = useMemo(() => `artifacts/${appId}/users/${userId}/sales`, [userId]);
+    const settingsPath = useMemo(() => `artifacts/${appId}/users/${userId}/settings`, [userId]);
 
     useEffect(() => {
         if (!userId) return;
@@ -873,7 +881,7 @@ const TransactionModal = ({ type, onClose, products, processTransaction }) => {
             processTransaction(product, 'sale', 'kart');
         } else if (type === 'veresiye') {
             processTransaction(product, 'credit');
-        } else if (type === 'personel') {
+        } else if (type === 'personnel') {
             processTransaction(product, 'personnel');
         }
     };
