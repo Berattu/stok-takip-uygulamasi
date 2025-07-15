@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence, browserSessionPersistence } from 'firebase/auth';
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence, browserSessionPersistence, signInWithCustomToken, setLogLevel } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, collection, onSnapshot, increment, addDoc, serverTimestamp, query, orderBy, writeBatch } from 'firebase/firestore';
 import { Toaster, toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
@@ -13,23 +13,18 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// --- Firebase Configuration ---
-const firebaseConfig = {
-  apiKey: "AIzaSyAb0VoKLRJKKgst9DVC_cb2ZU5wchfdTIM",
-  authDomain: "stok-takip-uygulamam-5e4a5.firebaseapp.com",
-  projectId: "stok-takip-uygulamam-5e4a5",
-  storageBucket: "stok-takip-uygulamam-5e4a5.appspot.com",
-  messagingSenderId: "393027640266",
-  appId: "1:393027640266:web:020f72a9a23f3fd5fa4d33",
-  measurementId: "G-SZ4DSQK66C"
-};
+// --- Firebase Configuration & Initialization ---
+// Canvas ortamından gelen global değişkenler kullanılıyor.
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-// --- Firebase Initialization ---
 let app, auth, db;
 try {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
+    // Geliştirme sırasında detaylı logları görmek için
+    // setLogLevel('debug');
 } catch (e) {
     console.error("Firebase initialization failed:", e);
 }
@@ -37,32 +32,88 @@ try {
 // --- Helper Functions ---
 const formatCurrency = (value) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value || 0);
 
-// --- Theme & Palette Definitions ---
-const colorPalettes = {
-    teal: { name: 'Yeşil', primary100: '#ccfbf1', primary500: '#14b8a6', primary600: '#0d9488', primary700: '#0f766e', darkPrimary100: '#115e59' },
-    blue: { name: 'Mavi', primary100: '#dbeafe', primary500: '#3b82f6', primary600: '#2563eb', primary700: '#1d4ed8', darkPrimary100: '#1e3a8a' },
-    rose: { name: 'Gül', primary100: '#ffe4e6', primary500: '#f43f5e', primary600: '#e11d48', primary700: '#be123c', darkPrimary100: '#881337' },
-    indigo: { name: 'Çivit', primary100: '#e0e7ff', primary500: '#6366f1', primary600: '#4f46e5', primary700: '#4338ca', darkPrimary100: '#312e81' },
+// --- Contexts ---
+const AuthContext = createContext(null);
+const ThemeContext = createContext();
+const PageContext = createContext();
+
+// --- Providers ---
+const AuthProvider = ({ children }) => {
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [userId, setUserId] = useState(null);
+
+    useEffect(() => {
+        // Firebase auth durumundaki değişiklikleri dinleyen listener.
+        // Bu, kullanıcı durumu için tek doğru kaynaktır.
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+            if (currentUser) {
+                setUser(currentUser);
+                setUserId(currentUser.uid);
+            } else {
+                setUser(null);
+                setUserId(null);
+            }
+            // Auth durumu belirlendikten sonra yükleme durumunu kapat.
+            setLoading(false);
+        });
+
+        // Platform tarafından sağlanan özel token ile oturum açmayı dene.
+        // Bu, iframe ortamlarında oturumun korunması için kritik öneme sahiptir.
+        const attemptInitialSignIn = async () => {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                try {
+                    // Zaten bir oturum varsa (örneğin HMR sonrası), tekrar deneme.
+                    if (!auth.currentUser) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    }
+                } catch (error) {
+                    console.error("Custom token ile giriş başarısız:", error);
+                    toast.error("Oturum doğrulanırken bir hata oluştu.");
+                }
+            }
+        };
+        
+        attemptInitialSignIn();
+
+        // Component unmount edildiğinde listener'ı temizle.
+        return () => unsubscribe();
+    }, []); // Boş dependency array, bu effect'in sadece bir kez çalışmasını sağlar.
+
+    const value = { user, userId, loading, setLoading };
+
+    return (
+        <AuthContext.Provider value={value}>
+            {children}
+        </AuthContext.Provider>
+    );
 };
 
-// --- Theme Context for Dark/Light Mode & Palettes ---
-const ThemeContext = createContext();
+const useAuth = () => useContext(AuthContext);
 
 const ThemeProvider = ({ children }) => {
     const [theme, setTheme] = useState('light');
     const [palette, setPalette] = useState('teal');
 
+    const colorPalettes = useMemo(() => ({
+        teal: { name: 'Yeşil', primary100: '#ccfbf1', primary500: '#14b8a6', primary600: '#0d9488', primary700: '#0f766e', darkPrimary100: '#115e59' },
+        blue: { name: 'Mavi', primary100: '#dbeafe', primary500: '#3b82f6', primary600: '#2563eb', primary700: '#1d4ed8', darkPrimary100: '#1e3a8a' },
+        rose: { name: 'Gül', primary100: '#ffe4e6', primary500: '#f43f5e', primary600: '#e11d48', primary700: '#be123c', darkPrimary100: '#881337' },
+        indigo: { name: 'Çivit', primary100: '#e0e7ff', primary500: '#6366f1', primary600: '#4f46e5', primary700: '#4338ca', darkPrimary100: '#312e81' },
+    }), []);
+
     const applyTheme = useCallback((t, p) => {
         if (!t || !p) return;
         document.documentElement.className = t;
         const selectedPalette = colorPalettes[p];
+        if (!selectedPalette) return;
         const root = document.documentElement;
         root.style.setProperty('--primary-100', selectedPalette.primary100);
         root.style.setProperty('--primary-500', selectedPalette.primary500);
         root.style.setProperty('--primary-600', selectedPalette.primary600);
         root.style.setProperty('--primary-700', selectedPalette.primary700);
         root.style.setProperty('--dark-primary-100', selectedPalette.darkPrimary100);
-    }, []);
+    }, [colorPalettes]);
 
     useEffect(() => {
         const localTheme = localStorage.getItem('theme') || 'light';
@@ -78,27 +129,62 @@ const ThemeProvider = ({ children }) => {
     }, []);
 
     return (
-        <ThemeContext.Provider value={{ theme, palette, setTheme, setPalette, applyTheme, persistSettings }}>
+        <ThemeContext.Provider value={{ theme, palette, setTheme, setPalette, applyTheme, persistSettings, colorPalettes }}>
             {children}
         </ThemeContext.Provider>
     );
 };
 
-// --- COMBINED MAIN APP COMPONENT ---
+const useTheme = () => useContext(ThemeContext);
+
+const PageProvider = ({ children }) => {
+    const [page, setPage] = useState('loading'); // loading, landing, login, app
+    const value = { page, setPage };
+    return <PageContext.Provider value={value}>{children}</PageContext.Provider>;
+};
+
+const usePage = () => useContext(PageContext);
+
+// --- Main App Component ---
 export default function App() {
     return (
-        <ThemeProvider>
-            <CombinedApp />
-        </ThemeProvider>
+        <AuthProvider>
+            <ThemeProvider>
+                <PageProvider>
+                    <Main />
+                </PageProvider>
+            </ThemeProvider>
+        </AuthProvider>
     );
 }
 
-const CombinedApp = () => {
-    const [showApp, setShowApp] = useState(false);
-    const { theme } = useContext(ThemeContext);
+const Main = () => {
+    const { user, loading } = useAuth();
+    const { page, setPage } = usePage();
+    const { theme } = useTheme();
 
-    const handleEnter = () => {
-        setShowApp(true);
+    useEffect(() => {
+        if (!loading) {
+            if (user) {
+                setPage('app');
+            } else {
+                setPage('landing');
+            }
+        }
+    }, [user, loading, setPage]);
+
+    const renderPage = () => {
+        switch (page) {
+            case 'app':
+                return <StockApp />;
+            case 'login':
+                return <AuthPage />;
+            case 'landing':
+                return <LandingPage />;
+            case 'loading':
+            default:
+                return <LoadingSpinner fullPage={true} />;
+        }
     };
 
     return (
@@ -143,21 +229,21 @@ const CombinedApp = () => {
                     ::-webkit-scrollbar-thumb:hover { background: #64748b; }
                 `}
             </style>
-             <Toaster richColors position="top-right" theme={theme} />
+            <Toaster richColors position="top-right" theme={theme} />
             <AnimatePresence mode="wait">
                 <motion.div
-                    key={showApp ? 'main-app' : 'landing'}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    transition={{ duration: 0.5 }}
+                    key={page}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
                 >
-                    {showApp ? <MainApp /> : <LandingPage onEnter={handleEnter} />}
+                    {renderPage()}
                 </motion.div>
             </AnimatePresence>
         </>
     );
-}
+};
 
 // --- Landing Page Component ---
 const HowItWorksSection = () => {
@@ -191,7 +277,8 @@ const HowItWorksSection = () => {
     );
 };
 
-const LandingPage = ({ onEnter }) => {
+const LandingPage = () => {
+    const { setPage } = usePage();
     const features = [
         { icon: <Package size={24} />, title: "Kolay Stok Yönetimi", description: "Ürünlerinizi barkodlarıyla kolayca ekleyin, stok adetlerinizi anlık olarak takip edin." },
         { icon: <Zap size={24} />, title: "Hızlı Satış Ekranı", description: "Nakit, kart, veresiye gibi farklı ödeme türleriyle saniyeler içinde satış yapın." },
@@ -213,13 +300,13 @@ const LandingPage = ({ onEnter }) => {
             <header className="absolute inset-x-0 top-0 z-50">
                 <nav className="flex items-center justify-between p-6 lg:px-8" aria-label="Global">
                     <div className="flex lg:flex-1">
-                        <a href="#" className="-m-1.5 p-1.5 flex items-center gap-2">
+                        <button onClick={() => setPage('landing')} className="-m-1.5 p-1.5 flex items-center gap-2">
                             <Building className="h-8 w-auto text-[var(--primary-600)]" />
                             <span className="font-bold text-xl text-[var(--text-color)]">Stok Takip</span>
-                        </a>
+                        </button>
                     </div>
                     <div className="flex lg:flex-1 lg:justify-end">
-                        <button onClick={onEnter} className="text-sm font-semibold leading-6 text-[var(--text-color)]">
+                        <button onClick={() => setPage('login')} className="text-sm font-semibold leading-6 text-[var(--text-color)]">
                             Giriş Yap <span aria-hidden="true">&rarr;</span>
                         </button>
                     </div>
@@ -236,7 +323,7 @@ const LandingPage = ({ onEnter }) => {
                             <h1 className="text-4xl font-bold tracking-tight text-[var(--text-color)] sm:text-6xl">İşletmeniz için Modern Stok Yönetimi</h1>
                             <p className="mt-6 text-lg leading-8 text-[var(--text-muted-color)]">Satışlarınızı hızlandırın, stoklarınızı kontrol altında tutun ve veriye dayalı kararlar alarak işletmenizi büyütün. Hepsi tek bir platformda.</p>
                             <div className="mt-10 flex items-center justify-center gap-x-6">
-                                <button onClick={onEnter} className="rounded-md bg-[var(--primary-600)] px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[var(--primary-500)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary-600)]">
+                                <button onClick={() => setPage('login')} className="rounded-md bg-[var(--primary-600)] px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[var(--primary-500)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary-600)]">
                                     Hemen Başla
                                 </button>
                             </div>
@@ -299,7 +386,7 @@ const LandingPage = ({ onEnter }) => {
                                         <p className="mt-6 flex items-baseline justify-center gap-x-2">
                                             <span className="text-5xl font-bold tracking-tight text-[var(--text-color)]">₺0</span>
                                         </p>
-                                        <button onClick={onEnter} className="mt-10 block w-full rounded-md bg-[var(--primary-600)] px-3 py-2 text-center text-sm font-semibold text-white shadow-sm hover:bg-[var(--primary-500)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary-600)]">
+                                        <button onClick={() => setPage('login')} className="mt-10 block w-full rounded-md bg-[var(--primary-600)] px-3 py-2 text-center text-sm font-semibold text-white shadow-sm hover:bg-[var(--primary-500)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary-600)]">
                                             Hesap Oluştur
                                         </button>
                                         <p className="mt-6 text-xs leading-5 text-[var(--text-muted-color)]">Kredi kartı gerekmez. Hemen kullanmaya başlayın.</p>
@@ -348,52 +435,15 @@ const LandingPage = ({ onEnter }) => {
 };
 
 
-// --- Main Application Wrapper ---
-const MainApp = () => {
-    const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const { setTheme, setPalette, applyTheme } = useContext(ThemeContext);
-
-    useEffect(() => {
-        if (!auth) { 
-            setLoading(false); 
-            return; 
-        }
-        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-            setUser(currentUser);
-            if(currentUser){
-                const settingsRef = doc(db, `artifacts/${firebaseConfig.appId}/users/${currentUser.uid}/settings`, 'appSettings');
-                getDoc(settingsRef).then(docSnap => {
-                    if(docSnap.exists()){
-                        const settings = docSnap.data();
-                        if (settings.theme) setTheme(settings.theme);
-                        if (settings.palette) setPalette(settings.palette);
-                        applyTheme(settings.theme || 'light', settings.palette || 'teal');
-                    }
-                });
-            }
-            setLoading(false);
-        });
-        return () => unsubscribe();
-    }, [setTheme, setPalette, applyTheme]);
-
-    if (loading) return <LoadingSpinner fullPage={true} message="Uygulama Yükleniyor..." />;
-
-    return (
-        <>
-            {user ? <StockApp user={user} /> : <AuthPage />}
-        </>
-    );
-};
-
-
 // --- Authentication Page ---
 const AuthPage = () => {
     const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [rememberMe, setRememberMe] = useState(true);
-    const [isLoading, setIsLoading] = useState(false);
+    const { setLoading } = useAuth();
+    const { setPage } = usePage();
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const handleAuthAction = async (e) => {
         e.preventDefault();
@@ -401,9 +451,9 @@ const AuthPage = () => {
             toast.warning("Lütfen e-posta ve şifre alanlarını doldurun."); 
             return; 
         }
-        setIsLoading(true);
+        setIsSubmitting(true);
+        setLoading(true);
         try {
-            // Set persistence based on "Remember Me" checkbox
             const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
             await setPersistence(auth, persistence);
 
@@ -414,11 +464,13 @@ const AuthPage = () => {
                 await createUserWithEmailAndPassword(auth, email, password);
                 toast.success("Hesabınız başarıyla oluşturuldu! Giriş yapılıyor...");
             }
+            // onAuthStateChanged will handle navigation
         } catch (error) {
             const errorMessage = error.code.includes('auth/weak-password') ? 'Şifre en az 6 karakter olmalıdır.' : 'Giriş bilgileri hatalı veya kullanıcı bulunamadı.';
             toast.error(errorMessage);
+            setLoading(false);
         } finally {
-            setIsLoading(false);
+            setIsSubmitting(false);
         }
     };
 
@@ -426,6 +478,9 @@ const AuthPage = () => {
         <div className="min-h-screen bg-[var(--surface-color)] flex flex-col justify-center items-center p-4">
             <div className="max-w-md w-full mx-auto">
                 <div className="text-center mb-8">
+                     <button onClick={() => setPage('landing')} className="text-sm font-semibold leading-6 text-[var(--text-muted-color)] mb-4 hover:text-[var(--text-color)]">
+                        &larr; Ana Sayfa
+                    </button>
                     <Building className="mx-auto h-12 w-auto text-[var(--primary-600)]" />
                     <h1 className="text-3xl font-bold text-[var(--text-color)] mt-4">Stok Takip Sistemine Hoş Geldiniz</h1>
                     <p className="text-[var(--text-muted-color)] mt-2">Lütfen hesabınıza giriş yapın veya yeni bir hesap oluşturun.</p>
@@ -448,8 +503,8 @@ const AuthPage = () => {
                             <label htmlFor="remember-me" className="ml-2 block text-sm text-[var(--text-muted-color)]">Beni Hatırla</label>
                         </div>
 
-                        <button type="submit" disabled={isLoading} className="w-full bg-[var(--primary-600)] text-white font-bold py-2.5 px-4 rounded-lg hover:bg-[var(--primary-700)] transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50">
-                            {isLoading ? <Loader2 className="animate-spin" /> : (isLogin ? <LogIn size={20} /> : <UserPlus size={20} />)}
+                        <button type="submit" disabled={isSubmitting} className="w-full bg-[var(--primary-600)] text-white font-bold py-2.5 px-4 rounded-lg hover:bg-[var(--primary-700)] transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50">
+                            {isSubmitting ? <Loader2 className="animate-spin" /> : (isLogin ? <LogIn size={20} /> : <UserPlus size={20} />)}
                             <span>{isLogin ? 'Giriş Yap' : 'Kayıt Ol'}</span>
                         </button>
                     </form>
@@ -466,7 +521,8 @@ const AuthPage = () => {
 };
 
 // --- Main Stock Application Component ---
-const StockApp = ({ user }) => {
+const StockApp = () => {
+    const { user, userId } = useAuth();
     const [products, setProducts] = useState([]);
     const [sales, setSales] = useState([]);
     const [loading, setLoading] = useState({ products: true, sales: true, settings: true });
@@ -475,12 +531,12 @@ const StockApp = ({ user }) => {
     const [settings, setSettings] = useState({ theme: 'light', palette: 'teal', criticalStockLevel: 5 });
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-    const productsPath = `artifacts/${firebaseConfig.appId}/users/${user.uid}/products`;
-    const salesPath = `artifacts/${firebaseConfig.appId}/users/${user.uid}/sales`;
-    const settingsPath = `artifacts/${firebaseConfig.appId}/users/${user.uid}/settings`;
+    const productsPath = `artifacts/${appId}/users/${userId}/products`;
+    const salesPath = `artifacts/${appId}/users/${userId}/sales`;
+    const settingsPath = `artifacts/${appId}/users/${userId}/settings`;
 
     useEffect(() => {
-        if (!user) return;
+        if (!userId) return;
         
         const settingsRef = doc(db, settingsPath, 'appSettings');
         const unsubscribeSettings = onSnapshot(settingsRef, (docSnap) => {
@@ -516,7 +572,7 @@ const StockApp = ({ user }) => {
             unsubscribeProducts(); 
             unsubscribeSales(); 
         };
-    }, [productsPath, salesPath, settingsPath, user]);
+    }, [userId, productsPath, salesPath, settingsPath]);
 
     const handleUpdateSettings = async (newSettings) => {
         const settingsRef = doc(db, settingsPath, 'appSettings');
@@ -545,6 +601,7 @@ const StockApp = ({ user }) => {
                 } else {
                     await setDoc(productRef, { ...dataToSave, createdAt: serverTimestamp() });
                     return { message: "başarıyla eklendi", name };
+
                 }
             },
             { loading: 'Ürün işleniyor...', success: (data) => `'${data.name}' ${data.message}.`, error: 'İşlem sırasında bir hata oluştu.' }
@@ -596,6 +653,10 @@ const StockApp = ({ user }) => {
         }
     }, [productsPath, salesPath]);
 
+    if (loading.products || loading.sales || loading.settings) {
+        return <LoadingSpinner fullPage={true} message="Veriler yükleniyor..." />;
+    }
+
     return (
         <div className="bg-[var(--surface-color)] min-h-screen">
             <div className="container mx-auto p-4 md:p-6 max-w-7xl">
@@ -645,12 +706,18 @@ const StockApp = ({ user }) => {
 // --- All Other Child Components ---
 
 const Header = ({ userEmail }) => {
+    const { setPage } = usePage();
+    const handleLogout = () => {
+        signOut(auth).then(() => {
+            setPage('landing');
+        });
+    };
     return (
         <header className="text-center mb-6 md:mb-8 relative">
             <h1 className="text-3xl md:text-4xl font-bold text-[var(--text-color)] tracking-tight">Stok Takip Sistemi</h1>
             <div className="flex items-center justify-center gap-4 mt-3">
                 <p className="text-sm text-[var(--text-muted-color)]">Giriş yapıldı: <span className="font-medium text-[var(--text-color)]">{userEmail}</span></p>
-                <button onClick={() => signOut(auth)} className="text-sm text-[var(--text-muted-color)] hover:text-[var(--primary-500)] font-semibold flex items-center gap-1.5 p-2 rounded-full hover:bg-[var(--surface-hover-color)] transition-colors">
+                <button onClick={handleLogout} className="text-sm text-[var(--text-muted-color)] hover:text-[var(--primary-500)] font-semibold flex items-center gap-1.5 p-2 rounded-full hover:bg-[var(--surface-hover-color)] transition-colors">
                     <LogOut size={16} />
                 </button>
             </div>
@@ -758,7 +825,7 @@ const InstantSaleSection = ({ products, productsPath, salesPath }) => {
                     <button onClick={() => setModalType('veresiye')} className="w-full bg-red-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2">
                         <BookUser size={18} /> Veresiye
                     </button>
-                     <button onClick={() => setModalType('personel')} className="w-full bg-yellow-500 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-yellow-600 transition-colors flex items-center justify-center gap-2">
+                     <button onClick={() => setModalType('personnel')} className="w-full bg-yellow-500 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-yellow-600 transition-colors flex items-center justify-center gap-2">
                         <UserCheck size={18} /> Personel
                     </button>
                 </div>
@@ -1087,7 +1154,7 @@ const Dashboard = ({ products, sales }) => {
 };
 
 const CategoryPieChart = ({ data }) => {
-    const { palette } = useContext(ThemeContext);
+    const { palette, colorPalettes } = useTheme();
     const COLORS = {
         teal: ['#14b8a6', '#0ea5e9', '#f97316', '#ec4899', '#8b5cf6', '#a8a29e'],
         blue: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6b7280'],
@@ -1124,7 +1191,7 @@ const CategoryPieChart = ({ data }) => {
 };
 
 const SettingsPanel = ({ currentSettings, onSave, onClose }) => {
-    const { applyTheme, persistSettings } = useContext(ThemeContext);
+    const { applyTheme, persistSettings, colorPalettes } = useTheme();
     const [tempSettings, setTempSettings] = useState(currentSettings);
 
     const originalSettings = useRef(currentSettings);
@@ -1662,7 +1729,7 @@ const SalesHistory = ({ sales, loading, onCancelSale }) => {
                              <p className={`text-lg font-bold ${s.type === 'cancelled' ? 'text-slate-500 line-through' : 'text-green-700'}`}>
                                 {s.type !== 'personnel' ? formatCurrency(s.total) : ''}
                             </p>
-                            {(s.type === 'sale' || s.type === 'credit') && (
+                            {(s.type === 'sale' || s.type === 'credit') && s.status !== 'cancelled' && (
                                  <button 
                                     onClick={() => handleCancelClick(s)} 
                                     className="p-1.5 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-md" 
@@ -1722,33 +1789,47 @@ const ChartContainer = ({ title, icon: Icon, children }) => (
 
 const CameraScanner = ({ onScanSuccess, onClose }) => {
     const scannerRef = useRef(null);
+    const scannerId = "barcode-scanner-container";
 
     useEffect(() => {
         const scriptId = 'html5-qrcode-script';
+        
+        const cleanupScanner = () => {
+            if (scannerRef.current && scannerRef.current.isScanning) {
+                scannerRef.current.stop().catch(err => {
+                    console.error("Tarayıcı durdurulurken hata oluştu, yoksayılıyor.", err);
+                });
+                scannerRef.current = null;
+            }
+        };
+
         const initializeScanner = () => {
             if (!window.Html5Qrcode) {
                 toast.error("Barkod okuyucu kütüphanesi yüklenemedi.");
                 onClose();
                 return;
             }
-            if (scannerRef.current) return;
+            if (!document.getElementById(scannerId)) return;
             
-            const scanner = new window.Html5Qrcode("barcode-scanner-container");
+            cleanupScanner(); // Ensure no previous scanner is running
+
+            const scanner = new window.Html5Qrcode(scannerId);
             scannerRef.current = scanner;
             let isScanning = true;
 
             scanner.start(
-                 { facingMode: "environment" },
+                { facingMode: "environment" },
                 { fps: 10, qrbox: { width: 250, height: 150 } },
                 (decodedText, decodedResult) => {
                     if (isScanning) {
                         isScanning = false;
-                         onScanSuccess(decodedText);
+                        onScanSuccess(decodedText);
+                        cleanupScanner();
                     }
                 },
                 (errorMessage) => { /* ignore */ }
             ).catch(err => {
-                 toast.error("Kamera başlatılamadı. Lütfen tarayıcı izinlerini kontrol edin.");
+                toast.error("Kamera başlatılamadı. Lütfen tarayıcı izinlerini kontrol edin.");
                 onClose();
             });
         };
@@ -1766,21 +1847,18 @@ const CameraScanner = ({ onScanSuccess, onClose }) => {
                 onClose();
             };
             document.body.appendChild(script);
+        } else {
+             initializeScanner();
         }
 
         return () => {
-            if (scannerRef.current && scannerRef.current.isScanning) {
-                scannerRef.current.stop().catch(err => {
-                    console.error("Tarayıcı durdurulurken hata oluştu, yoksayılıyor.", err);
-                });
-                scannerRef.current = null;
-            }
+            cleanupScanner();
         };
     }, [onScanSuccess, onClose]);
 
     return (
         <div className="fixed inset-0 bg-black/80 flex flex-col items-center justify-center z-50 p-4">
-            <div id="barcode-scanner-container" className="w-full max-w-md bg-white rounded-lg overflow-hidden aspect-video"></div>
+            <div id={scannerId} className="w-full max-w-md bg-white rounded-lg overflow-hidden aspect-video"></div>
             <button onClick={onClose} className="mt-4 bg-white text-black px-4 py-2 rounded-lg font-semibold flex items-center gap-2">
                 <X size={18} /> Kapat
             </button>
