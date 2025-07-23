@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence, browserSessionPersistence, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, collection, onSnapshot, increment, addDoc, serverTimestamp, query, orderBy, writeBatch, where, getDocs } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, collection, onSnapshot, increment, addDoc, serverTimestamp, query, orderBy, writeBatch, where, getDocs, runTransaction } from 'firebase/firestore';
 import { Toaster, toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { 
@@ -9,20 +9,24 @@ import {
     LogIn, UserPlus, LogOut, ShoppingCart, History, Loader2, Search, Edit, Trash2, 
     AlertTriangle, PlusCircle, LayoutDashboard, DollarSign, PackageSearch, TrendingUp, 
     Camera, X, PlusSquare, BarChart3, Calendar, ArrowUp, ArrowDown, PieChart as PieIcon, 
-    Clock, UserCheck, BookUser, CreditCard, Download, Undo2, Settings, Sun, Moon
+    Clock, UserCheck, BookUser, CreditCard, Download, Undo2, Settings, Sun, Moon,
+    Users, FileText, StickyNote, TrendingDown, ArrowRightLeft, Percent, Tag, MinusCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // --- Firebase Configuration & Initialization ---
-const firebaseConfig = {
-  apiKey: "AIzaSyAb0VoKLRJKKgst9DVC_cb2ZU5wchfdTIM",
-  authDomain: "stok-takip-uygulamam-5e4a5.firebaseapp.com",
-  projectId: "stok-takip-uygulamam-5e4a5",
-  storageBucket: "stok-takip-uygulamam-5e4a5.firebasestorage.app",
-  messagingSenderId: "393027640266",
-  appId: "1:393027640266:web:020f72a9a23f3fd5fa4d33",
-  measurementId: "G-SZ4DSQK66C"
-};
+const firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_config
+    ? JSON.parse(__firebase_config) 
+    : {
+        apiKey: "AIzaSyAb0VoKLRJKKgst9DVC_cb2ZU5wchfdTIM",
+        authDomain: "stok-takip-uygulamam-5e4a5.firebaseapp.com",
+        projectId: "stok-takip-uygulamam-5e4a5",
+        storageBucket: "stok-takip-uygulamam-5e4a5.appspot.com",
+        messagingSenderId: "393027640266",
+        appId: "1:393027640266:web:020f72a9a23f3fd5fa4d33",
+        measurementId: "G-SZ4DSQK66C"
+      };
+
 
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
@@ -40,6 +44,47 @@ try {
 
 // --- Helper Functions ---
 const formatCurrency = (value) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value || 0);
+
+const calculateDiscountedPrice = (product, categoryDiscounts = []) => {
+    if (!product || !product.salePrice) return { finalPrice: 0, discountApplied: 0, originalPrice: 0, appliedRule: null };
+    
+    const originalPrice = product.salePrice;
+    let discount = null;
+    let appliedRule = null;
+
+    if (product.discountValue > 0) {
+        discount = { value: product.discountValue, type: product.discountType };
+        appliedRule = 'product';
+    } 
+    else if (product.category) {
+        const categoryDiscount = categoryDiscounts.find(d => d.id.toLowerCase() === product.category.toLowerCase());
+        if (categoryDiscount && categoryDiscount.discountValue > 0) {
+            discount = { value: categoryDiscount.discountValue, type: categoryDiscount.discountType };
+            appliedRule = 'category';
+        }
+    }
+
+    if (!discount) {
+        return { finalPrice: originalPrice, discountApplied: 0, originalPrice: originalPrice, appliedRule: null };
+    }
+
+    let finalPrice;
+    let discountApplied = 0;
+
+    if (discount.type === 'percentage') {
+        const discountAmount = (originalPrice * parseFloat(discount.value)) / 100;
+        finalPrice = originalPrice - discountAmount;
+        discountApplied = discountAmount;
+    } else { 
+        finalPrice = originalPrice - parseFloat(discount.value);
+        discountApplied = parseFloat(discount.value);
+    }
+    
+    finalPrice = Math.max(0, finalPrice);
+
+    return { finalPrice, discountApplied, originalPrice, appliedRule };
+};
+
 
 // --- Contexts ---
 const AuthContext = createContext(null);
@@ -533,15 +578,21 @@ const StockAppLayout = ({ user }) => {
     const userId = user.uid;
     const [products, setProducts] = useState([]);
     const [sales, setSales] = useState([]);
-    const [loading, setLoading] = useState({ products: true, sales: true, settings: true });
+    const [categoryDiscounts, setCategoryDiscounts] = useState([]);
+    const [loading, setLoading] = useState({ products: true, sales: true, settings: true, discounts: true });
     const [activeTab, setActiveTab] = useState('dashboard');
     const [searchTerm, setSearchTerm] = useState('');
     const [settings, setSettings] = useState({ theme: 'light', palette: 'teal', criticalStockLevel: 5 });
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
+    // YENİ: Satış görünümü (hızlı veya sepet) ve sepet state'i
+    const [activeSaleView, setActiveSaleView] = useState('hizli'); // 'hizli' or 'sepet'
+    const [cart, setCart] = useState([]);
+
     const productsPath = useMemo(() => `artifacts/${appId}/users/${userId}/products`, [userId]);
     const salesPath = useMemo(() => `artifacts/${appId}/users/${userId}/sales`, [userId]);
     const settingsPath = useMemo(() => `artifacts/${appId}/users/${userId}/settings`, [userId]);
+    const categoryDiscountsPath = useMemo(() => `artifacts/${appId}/users/${userId}/categoryDiscounts`, [userId]);
 
     useEffect(() => {
         if (!userId) return;
@@ -575,12 +626,22 @@ const StockAppLayout = ({ user }) => {
             setLoading(prev => ({ ...prev, sales: false }));
         });
 
+        const discountsQuery = query(collection(db, categoryDiscountsPath));
+        const unsubscribeDiscounts = onSnapshot(discountsQuery, (snapshot) => {
+            setCategoryDiscounts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setLoading(prev => ({ ...prev, discounts: false }));
+        }, (error) => {
+            console.error("Error fetching category discounts:", error);
+            setLoading(prev => ({ ...prev, discounts: false }));
+        });
+
         return () => { 
             unsubscribeSettings();
             unsubscribeProducts(); 
             unsubscribeSales(); 
+            unsubscribeDiscounts();
         };
-    }, [userId, productsPath, salesPath, settingsPath]);
+    }, [userId, productsPath, salesPath, settingsPath, categoryDiscountsPath]);
 
     const handleUpdateSettings = async (newSettings) => {
         const settingsRef = doc(db, settingsPath, 'appSettings');
@@ -599,6 +660,8 @@ const StockAppLayout = ({ user }) => {
         if(!dataToSave.criticalStockLevel) {
             dataToSave.criticalStockLevel = settings.criticalStockLevel || 5;
         }
+        // Ürün ekleme/güncelleme formundan indirim alanları kaldırıldığı için bu satırlar artık gereksiz.
+        // dataToSave.discountValue = parseFloat(dataToSave.discountValue) || 0;
 
         toast.promise(
             async () => {
@@ -609,7 +672,6 @@ const StockAppLayout = ({ user }) => {
                 } else {
                     await setDoc(productRef, { ...dataToSave, createdAt: serverTimestamp() });
                     return { message: "başarıyla eklendi", name };
-
                 }
             },
             { loading: 'Ürün işleniyor...', success: (data) => `'${data.name}' ${data.message}.`, error: 'İşlem sırasında bir hata oluştu.' }
@@ -660,8 +722,106 @@ const StockAppLayout = ({ user }) => {
             toast.error("İptal işlemi sırasında bir hata oluştu.");
         }
     }, [productsPath, salesPath]);
+    
+    // --- SEPET FONKSİYONLARI ---
+    const handleAddToCart = useCallback((product) => {
+        if (product.stock <= 0) {
+            toast.warning(`${product.name} için stok tükendi!`);
+            return;
+        }
+        setCart(prevCart => {
+            const existingItem = prevCart.find(item => item.id === product.id);
+            if (existingItem) {
+                if (existingItem.quantity >= product.stock) {
+                    toast.warning(`Maksimum stok adedine ulaşıldı: ${product.stock}`);
+                    return prevCart;
+                }
+                return prevCart.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
+            } else {
+                return [...prevCart, { ...product, quantity: 1 }];
+            }
+        });
+        toast.success(`${product.name} sepete eklendi.`);
+    }, []);
 
-    if (loading.products || loading.sales || loading.settings) {
+    const handleUpdateCartQuantity = (productId, newQuantity) => {
+        setCart(prevCart => {
+            const productInCart = prevCart.find(item => item.id === productId);
+            const productInStock = products.find(p => p.id === productId);
+            if (newQuantity > productInStock.stock) {
+                toast.warning(`Maksimum stok adedine ulaşıldı: ${productInStock.stock}`);
+                return prevCart;
+            }
+            if (newQuantity <= 0) {
+                return prevCart.filter(item => item.id !== productId);
+            }
+            return prevCart.map(item => item.id === productId ? { ...item, quantity: newQuantity } : item);
+        });
+    };
+
+    const handleRemoveFromCart = (productId) => {
+        setCart(prevCart => prevCart.filter(item => item.id !== productId));
+    };
+
+    const handleClearCart = () => {
+        setCart([]);
+    };
+
+    const handleFinalizeSale = async (paymentMethod, transactionDiscount) => {
+        if (cart.length === 0) {
+            toast.warning("Sepetiniz boş.");
+            return;
+        }
+
+        const batch = writeBatch(db);
+        const saleRef = doc(collection(db, salesPath));
+
+        let total = 0;
+        const itemsForSale = cart.map(item => {
+            const { finalPrice, discountApplied, originalPrice, appliedRule } = calculateDiscountedPrice(item, categoryDiscounts);
+            total += finalPrice * item.quantity;
+            
+            // Stok güncelleme
+            const productRef = doc(db, productsPath, item.id);
+            batch.update(productRef, { stock: increment(-item.quantity) });
+
+            return {
+                productId: item.id,
+                name: item.name,
+                quantity: item.quantity,
+                price: finalPrice,
+                originalPrice: originalPrice,
+                purchasePrice: item.purchasePrice || 0,
+                discountApplied: discountApplied * item.quantity,
+                discountRule: appliedRule
+            };
+        });
+
+        const finalTotal = Math.max(0, total - transactionDiscount);
+
+        const saleData = {
+            type: 'sale',
+            paymentMethod: paymentMethod,
+            saleDate: serverTimestamp(),
+            total: finalTotal,
+            subTotal: total, // İndirimden önceki ara toplam
+            transactionDiscount: transactionDiscount, // İşlem bazlı indirim
+            items: itemsForSale
+        };
+
+        batch.set(saleRef, saleData);
+
+        await toast.promise(batch.commit(), {
+            loading: 'Satış tamamlanıyor...',
+            success: 'Satış başarıyla tamamlandı!',
+            error: 'Satış sırasında bir hata oluştu.'
+        });
+
+        handleClearCart();
+    };
+
+
+    if (loading.products || loading.sales || loading.settings || loading.discounts) {
         return <LoadingSpinner fullPage={true} message="Veriler yükleniyor..." />;
     }
 
@@ -671,7 +831,20 @@ const StockAppLayout = ({ user }) => {
                 <Header userEmail={user.email} />
                 <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }} className="lg:col-span-1 flex flex-col gap-6">
-                         <InstantSaleSection products={products} productsPath={productsPath} salesPath={salesPath} />
+                         <SaleAndProductSection 
+                            products={products}
+                            productsPath={productsPath}
+                            salesPath={salesPath}
+                            categoryDiscounts={categoryDiscounts}
+                            activeSaleView={activeSaleView}
+                            setActiveSaleView={setActiveSaleView}
+                            cart={cart}
+                            onAddToCart={handleAddToCart}
+                            onUpdateCartQuantity={handleUpdateCartQuantity}
+                            onRemoveFromCart={handleRemoveFromCart}
+                            onClearCart={handleClearCart}
+                            onFinalizeSale={handleFinalizeSale}
+                         />
                         <AddProductSection onAdd={handleAddOrUpdateProduct} products={products} settings={settings} />
                     </motion.div>
                     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }} className="lg:col-span-2 bg-[var(--bg-color)] p-4 sm:p-6 rounded-2xl shadow-lg border border-[var(--border-color)]">
@@ -686,9 +859,10 @@ const StockAppLayout = ({ user }) => {
                             >
                                 {activeTab === 'dashboard' && <Dashboard products={products} sales={sales} />}
                                 {activeTab === 'statistics' && <StatisticsPage sales={sales} products={products} />}
-                                {activeTab === 'stock' && <ProductList products={filteredProducts} loading={loading.products} onUpdate={handleAddOrUpdateProduct} onDelete={handleDeleteProduct} productsPath={productsPath} salesPath={salesPath} searchTerm={searchTerm} setSearchTerm={setSearchTerm} settings={settings}/>}
+                                {activeTab === 'stock' && <ProductList products={filteredProducts} loading={loading.products} onUpdate={handleAddOrUpdateProduct} onDelete={handleDeleteProduct} productsPath={productsPath} salesPath={salesPath} searchTerm={searchTerm} setSearchTerm={setSearchTerm} settings={settings} categoryDiscounts={categoryDiscounts}/>}
+                                {activeTab === 'discounts' && <DiscountsPage products={products} categoryDiscounts={categoryDiscounts} categoryDiscountsPath={categoryDiscountsPath} onUpdateProduct={handleAddOrUpdateProduct} />}
                                 {activeTab === 'history' && <SalesHistory sales={sales} loading={loading.sales} onCancelSale={handleCancelSale} />}
-                                {activeTab === 'credit' && <CreditPage sales={sales} salesPath={salesPath} loading={loading.sales} />}
+                                {activeTab === 'credit' && <CreditPage sales={sales} salesPath={salesPath} loading={loading.sales} categoryDiscounts={categoryDiscounts} />}
                             </motion.div>
                         </AnimatePresence>
                     </motion.div>
@@ -733,13 +907,19 @@ const Header = ({ userEmail }) => {
     );
 };
 
-const InstantSaleSection = ({ products, productsPath, salesPath }) => {
+// YENİ: Satış ve Ürün Yönetimi Sütununu Yöneten Bileşen
+const SaleAndProductSection = (props) => {
+    const { activeSaleView, setActiveSaleView, products, onAddToCart, productsPath, salesPath, categoryDiscounts } = props;
     const [barcode, setBarcode] = useState('');
-    const [showScanner, setShowScanner] = useState(false);
-    const [modalType, setModalType] = useState(null);
     const inputRef = useRef(null);
 
-    const processTransaction = useCallback(async (product, type, paymentMethod = null) => {
+    useEffect(() => {
+        if (inputRef.current) {
+            inputRef.current.focus();
+        }
+    }, [activeSaleView]);
+
+    const processTransaction = useCallback(async (product, type, paymentMethod = null, transactionDiscount = 0) => {
         if (!product) {
             toast.error("İşlem için ürün bulunamadı.");
             return;
@@ -748,6 +928,9 @@ const InstantSaleSection = ({ products, productsPath, salesPath }) => {
             toast.warning(`${product.name} için stok tükendi!`);
             return;
         }
+
+        const { finalPrice, discountApplied, originalPrice, appliedRule } = calculateDiscountedPrice(product, categoryDiscounts);
+        const finalTotal = Math.max(0, finalPrice - transactionDiscount);
 
         const productRef = doc(db, productsPath, product.id);
         const saleRef = doc(collection(db, salesPath));
@@ -758,15 +941,18 @@ const InstantSaleSection = ({ products, productsPath, salesPath }) => {
         const saleData = {
             type,
             saleDate: serverTimestamp(),
-            total: type === 'personnel' ? 0 : product.salePrice,
-            items: [{ productId: product.id, name: product.name, quantity: 1, price: product.salePrice, purchasePrice: product.purchasePrice || 0 }]
+            total: type === 'personnel' ? 0 : finalTotal,
+            subTotal: finalPrice,
+            transactionDiscount,
+            items: [{ 
+                productId: product.id, name: product.name, quantity: 1, price: finalPrice,
+                originalPrice: originalPrice, purchasePrice: product.purchasePrice || 0,
+                discountApplied: discountApplied, discountRule: appliedRule
+            }]
         };
 
-        if (type === 'sale') {
-            saleData.paymentMethod = paymentMethod;
-        } else if (type === 'credit') {
-            saleData.status = 'unpaid';
-        }
+        if (type === 'sale') saleData.paymentMethod = paymentMethod;
+        if (type === 'credit') saleData.status = 'unpaid';
 
         batch.set(saleRef, saleData);
 
@@ -776,27 +962,70 @@ const InstantSaleSection = ({ products, productsPath, salesPath }) => {
             error: 'İşlem sırasında bir hata oluştu.'
         });
 
-        setBarcode('');
-        setModalType(null);
-        if (inputRef.current) inputRef.current.focus();
+        return true; // Indicate success
+    }, [productsPath, salesPath, categoryDiscounts]);
 
-    }, [productsPath, salesPath]);
-
-    const handleCashSale = (e) => {
+    const handleBarcodeSubmit = (e) => {
         e.preventDefault();
-        if (!barcode) {
-            toast.warning("Lütfen bir barkod okutun veya girin.");
-            return;
-        }
+        if (!barcode) return;
+        
         const product = products.find(p => p.barcode === barcode);
         if (!product) {
             toast.error("Bu barkoda sahip ürün bulunamadı.");
+            setBarcode('');
             return;
         }
-        processTransaction(product, 'sale', 'nakit');
+
+        if (activeSaleView === 'sepet') {
+            onAddToCart(product);
+        } else {
+            processTransaction(product, 'sale', 'nakit', 0);
+        }
+        setBarcode('');
     };
 
-    const onScanSuccessForCash = (decodedText) => { 
+    return (
+        <div className="bg-[var(--bg-color)] p-6 rounded-2xl shadow-lg border border-[var(--border-color)] flex flex-col gap-4">
+            <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-color)] p-1 border border-[var(--border-color)]">
+                <button onClick={() => setActiveSaleView('hizli')} className={`flex-1 px-3 py-1.5 text-sm font-semibold rounded-md transition-colors flex items-center justify-center gap-2 ${activeSaleView === 'hizli' ? 'bg-[var(--bg-color)] text-[var(--primary-600)] shadow-sm' : 'text-[var(--text-muted-color)] hover:text-[var(--text-color)]'}`}>
+                    <Zap size={16}/> Hızlı Satış
+                </button>
+                <button onClick={() => setActiveSaleView('sepet')} className={`flex-1 px-3 py-1.5 text-sm font-semibold rounded-md transition-colors flex items-center justify-center gap-2 ${activeSaleView === 'sepet' ? 'bg-[var(--bg-color)] text-[var(--primary-600)] shadow-sm' : 'text-[var(--text-muted-color)] hover:text-[var(--text-color)]'}`}>
+                    <ShoppingCart size={16}/> Sepet ({props.cart.length})
+                </button>
+            </div>
+            
+            <BarcodeScannerInput 
+                barcode={barcode} 
+                setBarcode={setBarcode} 
+                handleBarcodeSubmit={handleBarcodeSubmit} 
+                inputRef={inputRef}
+                activeSaleView={activeSaleView}
+            />
+
+            <AnimatePresence mode="wait">
+                <motion.div
+                    key={activeSaleView}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.2 }}
+                >
+                    {activeSaleView === 'hizli' ? (
+                        <InstantSaleSection {...props} processTransaction={processTransaction} handleBarcodeSubmit={handleBarcodeSubmit} />
+                    ) : (
+                        <ShoppingCartSection {...props} />
+                    )}
+                </motion.div>
+            </AnimatePresence>
+        </div>
+    );
+};
+
+const BarcodeScannerInput = ({ barcode, setBarcode, handleBarcodeSubmit, inputRef, activeSaleView }) => {
+    const [showScanner, setShowScanner] = useState(false);
+
+    const onScanSuccess = (decodedText) => { 
         setShowScanner(false); 
         setBarcode(decodedText);
         setTimeout(() => {
@@ -808,23 +1037,32 @@ const InstantSaleSection = ({ products, productsPath, salesPath }) => {
     };
 
     return (
-        <div className="bg-[var(--bg-color)] p-6 rounded-2xl shadow-lg border border-[var(--border-color)] flex flex-col gap-4">
-            <h2 className="text-xl font-semibold flex items-center gap-2 text-[var(--text-color)]"><ShoppingCart size={22} /> Hızlı İşlemler</h2>
-            
-            <form onSubmit={handleCashSale}>
-                <div className="rounded-lg bg-[var(--surface-color)] p-3 border border-[var(--border-color)]">
-                    <label htmlFor="barcode-input" className="block text-xs font-medium text-[var(--text-muted-color)]">Nakit Satış (Barkod Okut/Gir + Enter)</label>
-                    <div className="flex items-center gap-2 mt-1">
-                        <input ref={inputRef} autoFocus id="barcode-input" type="text" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Nakit satış için okutun..." className="block w-full border-0 bg-transparent p-0 text-[var(--text-color)] placeholder:text-[var(--text-muted-color)] focus:ring-0 sm:text-sm"/>
-                        <button type="button" onClick={() => setShowScanner(true)} className="p-2 text-[var(--text-muted-color)] hover:text-[var(--primary-600)]" title="Kamera ile Tara"> <Camera size={20} /> </button>
-                    </div>
+        <form onSubmit={handleBarcodeSubmit}>
+            <div className="rounded-lg bg-[var(--surface-color)] p-3 border border-[var(--border-color)]">
+                <label htmlFor="barcode-input" className="block text-xs font-medium text-[var(--text-muted-color)]">
+                    {activeSaleView === 'sepet' ? 'Sepete Ekle (Barkod Okut/Gir + Enter)' : 'Nakit Satış (Barkod Okut/Gir + Enter)'}
+                </label>
+                <div className="flex items-center gap-2 mt-1">
+                    <input ref={inputRef} autoFocus id="barcode-input" type="text" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Barkod okutun..." className="block w-full border-0 bg-transparent p-0 text-[var(--text-color)] placeholder:text-[var(--text-muted-color)] focus:ring-0 sm:text-sm"/>
+                    <button type="button" onClick={() => setShowScanner(true)} className="p-2 text-[var(--text-muted-color)] hover:text-[var(--primary-600)]" title="Kamera ile Tara"> <Camera size={20} /> </button>
                 </div>
-            </form>
-            
+            </div>
+            {showScanner && <CameraScanner onScanSuccess={onScanSuccess} onClose={() => setShowScanner(false)} />}
+        </form>
+    );
+};
+
+
+const InstantSaleSection = ({ products, processTransaction, handleBarcodeSubmit }) => {
+    const [modalType, setModalType] = useState(null);
+    const [transactionDiscount, setTransactionDiscount] = useState(0);
+    
+    return (
+        <div className="flex flex-col gap-4">
             <div className="border-t border-[var(--border-color)] pt-4">
-                 <p className="text-center text-sm text-[var(--text-muted-color)] mb-3">Veya Diğer İşlem Türünü Seçin:</p>
-                <div className="grid grid-cols-2 gap-3">
-                    <button onClick={handleCashSale} className="w-full bg-green-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2">
+                 <p className="text-center text-sm text-[var(--text-muted-color)] mb-3">İşlem Türleri</p>
+                 <div className="grid grid-cols-2 gap-3">
+                    <button onClick={handleBarcodeSubmit} className="w-full bg-green-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2">
                         <DollarSign size={18} /> Nakit Sat
                     </button>
                     <button onClick={() => setModalType('kart')} className="w-full bg-blue-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
@@ -837,34 +1075,123 @@ const InstantSaleSection = ({ products, productsPath, salesPath }) => {
                         <UserCheck size={18} /> Personel
                     </button>
                 </div>
+                <div className="mt-3">
+                    <FormInput label="Anlık İndirim (₺)" id="transaction-discount">
+                        <input type="number" value={transactionDiscount} onChange={e => setTransactionDiscount(parseFloat(e.target.value) || 0)} className="w-full px-4 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)]" placeholder="0.00"/>
+                    </FormInput>
+                </div>
             </div>
-  
-            {showScanner && <CameraScanner onScanSuccess={onScanSuccessForCash} onClose={() => setShowScanner(false)} />}
-            
             {modalType && (
                 <TransactionModal 
                     type={modalType}
                     onClose={() => setModalType(null)}
                     products={products}
                     processTransaction={processTransaction}
+                    transactionDiscount={transactionDiscount}
                 />
             )}
         </div>
     );
 };
 
-const TransactionModal = ({ type, onClose, products, processTransaction }) => {
+// YENİ: Sepet Bileşeni
+const ShoppingCartSection = ({ cart, onUpdateCartQuantity, onRemoveFromCart, onClearCart, onFinalizeSale, categoryDiscounts }) => {
+    const [transactionDiscount, setTransactionDiscount] = useState(0);
+
+    const cartSubtotal = useMemo(() => {
+        return cart.reduce((total, item) => {
+            const { finalPrice } = calculateDiscountedPrice(item, categoryDiscounts);
+            return total + (finalPrice * item.quantity);
+        }, 0);
+    }, [cart, categoryDiscounts]);
+
+    const cartTotal = Math.max(0, cartSubtotal - transactionDiscount);
+
+    return (
+        <div className="flex flex-col gap-4">
+            <div className="flex justify-between items-center">
+                <h2 className="text-xl font-semibold flex items-center gap-2 text-[var(--text-color)]"><ShoppingCart size={22} /> Satış Sepeti</h2>
+                {cart.length > 0 && (
+                    <button onClick={onClearCart} className="text-sm font-semibold text-red-500 hover:text-red-700 flex items-center gap-1">
+                        <Trash2 size={14}/> Temizle
+                    </button>
+                )}
+            </div>
+
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                {cart.length === 0 ? (
+                    <p className="text-center text-sm text-[var(--text-muted-color)] py-4">Sepetiniz boş.</p>
+                ) : (
+                    cart.map(item => (
+                        <div key={item.id} className="flex items-center gap-2 bg-[var(--surface-color)] p-2 rounded-lg">
+                            <div className="flex-grow">
+                                <p className="font-semibold text-sm truncate">{item.name}</p>
+                                <p className="text-xs text-[var(--text-muted-color)]">{formatCurrency(calculateDiscountedPrice(item, categoryDiscounts).finalPrice)}</p>
+                            </div>
+                            <div className="flex items-center gap-1">
+                                <button onClick={() => onUpdateCartQuantity(item.id, item.quantity - 1)} className="p-1 rounded-full hover:bg-[var(--surface-hover-color)]"><MinusCircle size={16}/></button>
+                                <input 
+                                    type="number" 
+                                    value={item.quantity} 
+                                    onChange={(e) => onUpdateCartQuantity(item.id, parseInt(e.target.value) || 1)}
+                                    className="w-10 text-center bg-transparent border-x-0 border-t-0 border-b border-[var(--border-color)] focus:ring-0 focus:border-[var(--primary-500)] text-sm"
+                                />
+                                <button onClick={() => onUpdateCartQuantity(item.id, item.quantity + 1)} className="p-1 rounded-full hover:bg-[var(--surface-hover-color)]"><PlusCircle size={16}/></button>
+                            </div>
+                            <button onClick={() => onRemoveFromCart(item.id)} className="p-1 text-red-500 hover:bg-red-100 rounded-full"><X size={16}/></button>
+                        </div>
+                    ))
+                )}
+            </div>
+
+            {cart.length > 0 && (
+                <div className="border-t border-[var(--border-color)] pt-4 space-y-3">
+                    <div className="flex justify-between items-center text-sm">
+                        <span className="text-[var(--text-muted-color)]">Ara Toplam:</span>
+                        <span className="font-semibold">{formatCurrency(cartSubtotal)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                        <span className="text-[var(--text-muted-color)]">Kasa İndirimi (₺):</span>
+                        <input 
+                            type="number" 
+                            value={transactionDiscount || ''} 
+                            onChange={e => setTransactionDiscount(parseFloat(e.target.value) || 0)}
+                            className="w-20 text-right bg-transparent border-x-0 border-t-0 border-b border-[var(--border-color)] focus:ring-0 focus:border-[var(--primary-500)] text-sm font-semibold text-red-500"
+                            placeholder="0"
+                        />
+                    </div>
+                    <div className="flex justify-between items-center text-lg font-bold">
+                        <span>TOPLAM:</span>
+                        <span>{formatCurrency(cartTotal)}</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pt-2">
+                        <button onClick={() => onFinalizeSale('nakit', transactionDiscount)} className="w-full bg-green-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2">
+                            <DollarSign size={18} /> Nakit Öde
+                        </button>
+                        <button onClick={() => onFinalizeSale('kart', transactionDiscount)} className="w-full bg-blue-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
+                            <CreditCard size={18} /> Kartla Öde
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+const TransactionModal = ({ type, onClose, products, processTransaction, transactionDiscount }) => {
     const [barcode, setBarcode] = useState('');
     const [showScanner, setShowScanner] = useState(false);
     const inputRef = useRef(null);
 
     const typeConfig = useMemo(() => ({
-        kart: { title: 'Kartla Satış', icon: CreditCard, color: 'blue-600' },
-        veresiye: { title: 'Veresiye Kaydı', icon: BookUser, color: 'red-600' },
-        personel: { title: 'Personel Kullanımı', icon: UserCheck, color: 'yellow-500' }
+        kart: { title: 'Kartla Satış', icon: CreditCard, color: 'blue-600', saleType: 'sale', paymentMethod: 'kart' },
+        veresiye: { title: 'Veresiye Kaydı', icon: BookUser, color: 'red-600', saleType: 'credit', paymentMethod: null },
+        personnel: { title: 'Personel Kullanımı', icon: UserCheck, color: 'yellow-500', saleType: 'personnel', paymentMethod: null }
     }), [])[type];
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (!barcode) {
             toast.warning("Lütfen bir barkod okutun veya girin.");
@@ -877,12 +1204,9 @@ const TransactionModal = ({ type, onClose, products, processTransaction }) => {
             return;
         }
 
-        if (type === 'kart') {
-            processTransaction(product, 'sale', 'kart');
-        } else if (type === 'veresiye') {
-            processTransaction(product, 'credit');
-        } else if (type === 'personnel') {
-            processTransaction(product, 'personnel');
+        const success = await processTransaction(product, typeConfig.saleType, typeConfig.paymentMethod, transactionDiscount);
+        if(success) {
+            onClose();
         }
     };
     
@@ -932,7 +1256,8 @@ const TransactionModal = ({ type, onClose, products, processTransaction }) => {
 };
 
 const AddProductSection = ({ onAdd, products, settings }) => {
-    const [product, setProduct] = useState({ name: '', barcode: '', stock: '', purchasePrice: '', salePrice: '', category: '', criticalStockLevel: '' });
+    const initialProductState = { name: '', barcode: '', stock: '', purchasePrice: '', salePrice: '', category: '', criticalStockLevel: '' };
+    const [product, setProduct] = useState(initialProductState);
     const [showScanner, setShowScanner] = useState(false);
     
     const handleSubmit = async (e) => {
@@ -945,7 +1270,9 @@ const AddProductSection = ({ onAdd, products, settings }) => {
             stock: parseInt(stock), 
             purchasePrice: parseFloat(purchasePrice), 
             salePrice: parseFloat(salePrice),
-            criticalStockLevel: parseInt(product.criticalStockLevel) || settings.criticalStockLevel || 5
+            criticalStockLevel: parseInt(product.criticalStockLevel) || settings.criticalStockLevel || 5,
+            discountValue: 0, 
+            discountType: 'fixed'
         };
 
         const existingProduct = products.find(p => p.id === barcode);
@@ -957,7 +1284,7 @@ const AddProductSection = ({ onAdd, products, settings }) => {
         }
     };
 
-    const resetForm = () => setProduct({ name: '', barcode: '', stock: '', purchasePrice: '', salePrice: '', category: '', criticalStockLevel: '' });
+    const resetForm = () => setProduct(initialProductState);
 
     const onBarcodeScan = (decodedText) => {
         setProduct(prev => ({ ...prev, barcode: decodedText }));
@@ -984,6 +1311,7 @@ const AddProductSection = ({ onAdd, products, settings }) => {
             <FormInput label="Alış Fiyatı (₺)" id="purchasePrice" required><input type="number" name="purchasePrice" id="purchasePrice" value={product.purchasePrice} onChange={(e) => setProduct({...product, purchasePrice: e.target.value})} className="w-full px-4 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)]" placeholder="0.00" min="0" step="0.01"/></FormInput>
             <FormInput label="Satış Fiyatı (₺)" id="salePrice" required><input type="number" name="salePrice" id="salePrice" value={product.salePrice} onChange={(e) => setProduct({...product, salePrice: e.target.value})} className="w-full px-4 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)]" placeholder="0.00" min="0" step="0.01"/></FormInput>
         </div>
+        
         <FormInput label="Kategori" id="category"><input type="text" name="category" id="category" value={product.category} onChange={(e) => setProduct({...product, category: e.target.value})} className="w-full px-4 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)]" placeholder="Örn: İçecek"/></FormInput>
         <button type="submit" className="w-full bg-[var(--primary-600)] text-white font-bold py-2.5 px-4 rounded-lg hover:bg-[var(--primary-700)] transition-all duration-300 flex items-center justify-center gap-2"> <PlusCircle size={20} /> <span>Ürünü Ekle / Güncelle</span> </button>
     </form>
@@ -996,6 +1324,7 @@ const Tabs = ({ activeTab, setActiveTab }) => {
         { id: 'dashboard', label: 'Gösterge Paneli', icon: LayoutDashboard }, 
         { id: 'statistics', label: 'İstatistikler', icon: BarChart3 }, 
         { id: 'stock', label: 'Stok Listesi', icon: Package }, 
+        { id: 'discounts', label: 'İndirimler', icon: Percent },
         { id: 'credit', label: 'Veresiye', icon: BookUser }, 
         { id: 'history', label: 'Satış Geçmişi', icon: History }
     ]; 
@@ -1012,6 +1341,128 @@ const Tabs = ({ activeTab, setActiveTab }) => {
              </nav>
         </div> 
     ); 
+};
+
+// YENİ: İndirimler Sayfası
+const DiscountsPage = ({ products, categoryDiscounts, categoryDiscountsPath, onUpdateProduct }) => {
+    const [newCategoryDiscount, setNewCategoryDiscount] = useState({ name: '', discountValue: '', discountType: 'percentage' });
+
+    const uniqueCategories = useMemo(() => {
+        const categories = new Set(products.map(p => p.category).filter(Boolean));
+        return Array.from(categories);
+    }, [products]);
+
+    const handleSaveCategoryDiscount = async (e) => {
+        e.preventDefault();
+        const { name, discountValue, discountType } = newCategoryDiscount;
+        if (!name || !discountValue) {
+            toast.warning("Lütfen kategori adı ve indirim değeri girin.");
+            return;
+        }
+        const discountRef = doc(db, categoryDiscountsPath, name);
+        const dataToSave = {
+            discountValue: parseFloat(discountValue),
+            discountType: discountType
+        };
+        await toast.promise(setDoc(discountRef, dataToSave), {
+            loading: 'Kategori indirimi kaydediliyor...',
+            success: `"${name}" kategorisi için indirim kaydedildi.`,
+            error: 'İşlem sırasında bir hata oluştu.'
+        });
+        setNewCategoryDiscount({ name: '', discountValue: '', discountType: 'percentage' });
+    };
+
+    const handleDeleteCategoryDiscount = async (categoryName) => {
+        const discountRef = doc(db, categoryDiscountsPath, categoryName);
+        await toast.promise(deleteDoc(discountRef), {
+            loading: 'İndirim siliniyor...',
+            success: `"${categoryName}" kategorisinin indirimi kaldırıldı.`,
+            error: 'İşlem sırasında bir hata oluştu.'
+        });
+    };
+    
+    const handleProductDiscountChange = (product, field, value) => {
+        const updatedProduct = {
+            ...product,
+            [field]: value
+        };
+        onUpdateProduct(updatedProduct);
+    };
+
+    return (
+        <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2 pb-4">
+            {/* Kategori İndirimleri */}
+            <div className="bg-[var(--surface-color)] p-4 rounded-lg border border-[var(--border-color)]">
+                <h3 className="font-semibold mb-3 flex items-center gap-2 text-[var(--text-color)]"><Tag size={18}/> Kategori İndirimleri</h3>
+                <form onSubmit={handleSaveCategoryDiscount} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end mb-4">
+                    <div>
+                        <label className="text-xs text-[var(--text-muted-color)]">Kategori</label>
+                        <select value={newCategoryDiscount.name} onChange={e => setNewCategoryDiscount({...newCategoryDiscount, name: e.target.value})} className="w-full mt-1 px-3 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)] text-sm">
+                            <option value="">Seçiniz...</option>
+                            {uniqueCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="text-xs text-[var(--text-muted-color)]">İndirim Değeri</label>
+                        <input type="number" placeholder="10" value={newCategoryDiscount.discountValue} onChange={e => setNewCategoryDiscount({...newCategoryDiscount, discountValue: e.target.value})} className="w-full mt-1 px-3 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)] text-sm" />
+                    </div>
+                    <div>
+                        <label className="text-xs text-[var(--text-muted-color)]">Tipi</label>
+                        <select value={newCategoryDiscount.discountType} onChange={e => setNewCategoryDiscount({...newCategoryDiscount, discountType: e.target.value})} className="w-full mt-1 px-3 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)] text-sm">
+                            <option value="percentage">% Yüzde</option>
+                            <option value="fixed">₺ Sabit Tutar</option>
+                        </select>
+                    </div>
+                    <button type="submit" className="bg-[var(--primary-600)] text-white font-bold py-2 px-4 rounded-lg hover:bg-[var(--primary-700)] transition-colors text-sm">Kaydet</button>
+                </form>
+                <div className="space-y-2">
+                    {categoryDiscounts.map(d => (
+                        <div key={d.id} className="flex justify-between items-center p-2 bg-[var(--bg-color)] rounded-md">
+                            <p className="text-sm font-medium">{d.id}</p>
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-bold text-[var(--primary-600)]">{d.discountValue}{d.discountType === 'percentage' ? '%' : '₺'}</span>
+                                <button onClick={() => handleDeleteCategoryDiscount(d.id)} className="p-1 text-red-500 hover:bg-red-100 rounded-full"><Trash2 size={14}/></button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Ürün Bazlı İndirimler */}
+            <div>
+                <h3 className="font-semibold mb-3 flex items-center gap-2 text-[var(--text-color)]"><PackageSearch size={18}/> Ürün Bazlı İndirimler</h3>
+                <div className="space-y-2">
+                    {products.map(p => (
+                        <div key={p.id} className="grid grid-cols-5 gap-2 items-center p-2 bg-[var(--surface-color)] rounded-lg border border-[var(--border-color)]">
+                            <p className="col-span-2 text-sm font-medium truncate" title={p.name}>{p.name}</p>
+                            <input 
+                                type="number" 
+                                placeholder="Değer"
+                                value={p.discountValue || ''}
+                                onChange={e => handleProductDiscountChange(p, 'discountValue', e.target.value)}
+                                className="w-full px-2 py-1 border border-[var(--border-color)] rounded-md focus:outline-none focus:ring-1 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)] text-sm"
+                            />
+                            <select 
+                                value={p.discountType || 'fixed'}
+                                onChange={e => handleProductDiscountChange(p, 'discountType', e.target.value)}
+                                className="w-full px-2 py-1 border border-[var(--border-color)] rounded-md focus:outline-none focus:ring-1 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)] text-sm"
+                            >
+                                <option value="fixed">₺</option>
+                                <option value="percentage">%</option>
+                            </select>
+                            <button 
+                                onClick={() => handleProductDiscountChange(p, 'discountValue', 0)}
+                                className="p-1.5 text-slate-500 hover:bg-slate-200 rounded-full justify-self-center"
+                                title="İndirimi Sıfırla"
+                            >
+                                <X size={16}/>
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
 };
 
 const Dashboard = ({ products, sales }) => {
@@ -1478,18 +1929,31 @@ const StatisticsPage = ({ sales, products }) => {
 };
 
 
-const ProductList = ({ products, loading, onUpdate, onDelete, productsPath, salesPath, searchTerm, setSearchTerm, settings }) => {
+const ProductList = ({ products, loading, onUpdate, onDelete, productsPath, salesPath, searchTerm, setSearchTerm, settings, categoryDiscounts }) => {
     const [editingProduct, setEditingProduct] = useState(null);
     const [stockModalProduct, setStockModalProduct] = useState(null);
+    const [priceUpdateProduct, setPriceUpdateProduct] = useState(null);
 
     const handleUpdateSubmit = (e) => { 
         e.preventDefault(); 
         const productData = {
             ...editingProduct,
-            criticalStockLevel: parseInt(editingProduct.criticalStockLevel) || settings.criticalStockLevel || 5
+            criticalStockLevel: parseInt(editingProduct.criticalStockLevel) || settings.criticalStockLevel || 5,
+            // discountValue: parseFloat(editingProduct.discountValue) || 0,
+            // discountType: editingProduct.discountType || 'fixed'
         };
         onUpdate(productData); 
         setEditingProduct(null); 
+    };
+
+    const handlePriceUpdate = async (product, newPrice) => {
+        const productRef = doc(db, productsPath, product.id);
+        await toast.promise(updateDoc(productRef, { salePrice: newPrice }), {
+            loading: 'Fiyat güncelleniyor...',
+            success: `${product.name} fiyatı ${formatCurrency(newPrice)} olarak güncellendi.`,
+            error: 'Fiyat güncellenirken bir hata oluştu.'
+        });
+        setPriceUpdateProduct(null);
     };
 
     const handleAddStock = useCallback(async (productId, amount) => {
@@ -1512,7 +1976,7 @@ const ProductList = ({ products, loading, onUpdate, onDelete, productsPath, sale
             const batch = writeBatch(db);
             batch.update(productRef, { stock: increment(-amount) });
             const saleRef = doc(collection(db, salesPath));
-            batch.set(saleRef, { type: 'personnel', saleDate: serverTimestamp(), total: 0, items: [{ productId: product.id, name: product.name, quantity: amount, price: 0 }] });
+            batch.set(saleRef, { type: 'personnel', saleDate: serverTimestamp(), total: 0, items: [{ productId: product.id, name: product.name, quantity: amount, price: 0, originalPrice: 0, discountApplied: 0 }] });
             await batch.commit();
             toast.info(`${amount} adet ${product.name}, personel kullanımı olarak düşüldü.`);
         } catch (error) { toast.error("İşlem sırasında bir hata oluştu."); }
@@ -1525,26 +1989,37 @@ const ProductList = ({ products, loading, onUpdate, onDelete, productsPath, sale
                 toast.error(`Yetersiz stok!`);
                 return;
             }
-             const batch = writeBatch(db);
+            const { finalPrice, discountApplied, originalPrice, appliedRule } = calculateDiscountedPrice(product, categoryDiscounts);
+            const batch = writeBatch(db);
             batch.update(productRef, { stock: increment(-1) });
             const saleRef = doc(collection(db, salesPath));
             batch.set(saleRef, { 
                 type: 'credit', 
                 status: 'unpaid',
-                 saleDate: serverTimestamp(), 
-                total: product.salePrice, 
-                items: [{ productId: product.id, name: product.name, quantity: 1, price: product.salePrice, purchasePrice: product.purchasePrice || 0 }] 
+                saleDate: serverTimestamp(), 
+                total: finalPrice, 
+                items: [{ 
+                    productId: product.id, 
+                    name: product.name, 
+                    quantity: 1, 
+                    price: finalPrice, 
+                    originalPrice: originalPrice,
+                    purchasePrice: product.purchasePrice || 0,
+                    discountApplied: discountApplied,
+                    discountRule: appliedRule
+                }] 
             });
             await batch.commit();
             toast.success(`${product.name} veresiye olarak satıldı.`);
         } catch (error) { toast.error("Veresiye satışı sırasında bir hata oluştu."); }
-    }, [productsPath, salesPath]);
+    }, [productsPath, salesPath, categoryDiscounts]);
 
     const handleSale = useCallback(async (product, paymentMethod) => {
         if (product.stock <= 0) {
             toast.warning(`${product.name} için stok tükendi!`);
             return;
         }
+        const { finalPrice, discountApplied, originalPrice, appliedRule } = calculateDiscountedPrice(product, categoryDiscounts);
         const productRef = doc(db, productsPath, product.id);
         const saleRef = doc(collection(db, salesPath));
         const batch = writeBatch(db);
@@ -1553,8 +2028,17 @@ const ProductList = ({ products, loading, onUpdate, onDelete, productsPath, sale
             type: 'sale',
             paymentMethod: paymentMethod,
             saleDate: serverTimestamp(),
-            total: product.salePrice,
-            items: [{ productId: product.id, name: product.name, quantity: 1, price: product.salePrice, purchasePrice: product.purchasePrice || 0 }]
+            total: finalPrice,
+            items: [{ 
+                productId: product.id, 
+                name: product.name, 
+                quantity: 1, 
+                price: finalPrice, 
+                originalPrice: originalPrice,
+                purchasePrice: product.purchasePrice || 0,
+                discountApplied: discountApplied,
+                discountRule: appliedRule
+            }]
         };
          batch.set(saleRef, saleData);
         await toast.promise(batch.commit(), {
@@ -1562,7 +2046,21 @@ const ProductList = ({ products, loading, onUpdate, onDelete, productsPath, sale
             success: `${product.name} satışı başarılı!`,
             error: 'Satış sırasında bir hata oluştu.'
         });
-    }, [productsPath, salesPath]);
+    }, [productsPath, salesPath, categoryDiscounts]);
+
+    const ProductPrice = ({product}) => {
+        const { finalPrice, discountApplied, originalPrice, appliedRule } = calculateDiscountedPrice(product, categoryDiscounts);
+        if (discountApplied > 0) {
+            return (
+                <div className="flex items-center gap-2">
+                    <p className="text-xs text-red-500 line-through">{formatCurrency(originalPrice)}</p>
+                    <p className="text-sm text-green-700 font-medium">{formatCurrency(finalPrice)}</p>
+                    {appliedRule === 'category' && <Tag size={12} className="text-blue-500" title="Kategori İndirimi" />}
+                </div>
+            )
+        }
+        return <p className="text-sm text-green-700 font-medium">{formatCurrency(originalPrice)}</p>
+    }
 
     if (loading) return <LoadingSpinner />;
     if (products.length === 0 && !searchTerm) return <EmptyState icon={<Package size={40}/>} message="Henüz ürün eklenmemiş." description="Başlamak için sol taraftaki 'Ürün Yönetimi' panelini kullanabilirsiniz." />;
@@ -1576,7 +2074,7 @@ const ProductList = ({ products, loading, onUpdate, onDelete, productsPath, sale
                     <div className="flex-1 min-w-0">
                         <p className="font-semibold text-[var(--text-color)] truncate flex items-center">{p.name} {p.stock <= (p.criticalStockLevel || settings.criticalStockLevel || 5) && <AlertTriangle size={14} className="ml-2 text-red-500"/>}</p>
                         <p className="text-xs text-[var(--text-muted-color)]">Barkod: {p.barcode} | Kategori: {p.category || 'Yok'}</p>
-                        <p className="text-xs text-green-700 font-medium">Satış: {formatCurrency(p.salePrice)}</p>
+                        <ProductPrice product={p} />
                     </div>
                     <div className="text-right mx-4 w-16 flex-shrink-0">
                         <p className={`font-bold text-lg ${p.stock > 10 ? 'text-green-600' : p.stock > (p.criticalStockLevel || settings.criticalStockLevel || 5) ? 'text-yellow-600' : 'text-red-600'}`}>{p.stock}</p>
@@ -1584,18 +2082,19 @@ const ProductList = ({ products, loading, onUpdate, onDelete, productsPath, sale
                     </div>
                 </div>
                 <div className="border-t border-[var(--border-color)] mt-2 pt-2 flex items-center justify-end space-x-1 flex-wrap">
-                     <button onClick={() => handleSale(p, 'nakit')} className="p-2 text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-md" title="Nakit Sat"><DollarSign size={16} /></button>
+                    <button onClick={() => handleSale(p, 'nakit')} className="p-2 text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-md" title="Nakit Sat"><DollarSign size={16} /></button>
                     <button onClick={() => handleSale(p, 'kart')} className="p-2 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-md" title="Kartla Sat"><CreditCard size={16} /></button>
                     <div className="border-l border-[var(--border-color)] h-6 mx-1"></div>
                     <button onClick={() => handleCreditSale(p)} className="p-2 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-md" title="Veresiye Sat"><BookUser size={16} /></button>
                     <button onClick={() => handlePersonnelUse(p, 1)} className="p-2 text-yellow-600 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 rounded-md" title="Personel Kullanımı"><UserCheck size={16} /></button>
                     <button onClick={() => setStockModalProduct(p)} className="p-2 text-[var(--primary-600)] hover:bg-[var(--primary-100)] rounded-md" title="Stok Ekle"><PlusSquare size={16} /></button>
+                    <button onClick={() => setPriceUpdateProduct(p)} className="p-2 text-orange-500 hover:bg-orange-100 dark:hover:bg-orange-900/30 rounded-md" title="Fiyat Güncelle"><TrendingUp size={16} /></button>
                     <button onClick={() => setEditingProduct(p)} className="p-2 text-[var(--text-muted-color)] hover:bg-[var(--surface-hover-color)] rounded-md" title="Düzenle"><Edit size={16} /></button>
                     <button onClick={() => toast(`"${p.name}" ürününü silmek istediğinize emin misiniz?`, { action: { label: 'Evet, Sil', onClick: () => onDelete(p.id, p.name) }, cancel: { label: 'İptal' } })} className="p-2 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-md" title="Sil"><Trash2 size={16} /></button>
                 </div>
             </motion.div>
         ))} </div>
-        {editingProduct && ( <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setEditingProduct(null)}> <div className="bg-[var(--bg-color)] p-6 rounded-xl shadow-2xl w-full max-w-md border border-[var(--border-color)]" onClick={e => e.stopPropagation()}>
+        {editingProduct && ( <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setEditingProduct(null)}> <div className="bg-[var(--bg-color)] p-6 rounded-xl shadow-2xl w-full max-w-md border border-[var(--border-color)]" onClick={e => e.stopPropagation()}>
             <h3 className="text-xl font-semibold mb-4 text-[var(--text-color)]">Ürünü Düzenle</h3>
             <form onSubmit={handleUpdateSubmit} className="space-y-3">
                 <FormInput label="Ürün Adı" id="edit-name"><input value={editingProduct.name} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full px-4 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)]" /></FormInput>
@@ -1604,16 +2103,75 @@ const ProductList = ({ products, loading, onUpdate, onDelete, productsPath, sale
                     <FormInput label="Kritik Stok" id="edit-criticalStock"><input type="number" value={editingProduct.criticalStockLevel} onChange={e => setEditingProduct({...editingProduct, criticalStockLevel: parseInt(e.target.value)})} className="w-full px-4 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)]" /></FormInput>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                    <FormInput label="Alış Fiyatı (₺)" id="edit-purchasePrice"><input type="number" value={editingProduct.purchasePrice} onChange={e => setEditingProduct({...editingProduct, purchasePrice: parseFloat(e.target.value)})} className="w-full px-4 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)]" /></FormInput>
-                     <FormInput label="Satış Fiyatı (₺)" id="edit-salePrice"><input type="number" value={editingProduct.salePrice} onChange={e => setEditingProduct({...editingProduct, salePrice: parseFloat(e.target.value)})} className="w-full px-4 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)]" /></FormInput>
+                    <FormInput label="Alış Fiyatı (₺)" id="edit-purchasePrice"><input type="number" step="0.01" value={editingProduct.purchasePrice} onChange={e => setEditingProduct({...editingProduct, purchasePrice: parseFloat(e.target.value)})} className="w-full px-4 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)]" /></FormInput>
+                     <FormInput label="Satış Fiyatı (₺)" id="edit-salePrice"><input type="number" step="0.01" value={editingProduct.salePrice} onChange={e => setEditingProduct({...editingProduct, salePrice: parseFloat(e.target.value)})} className="w-full px-4 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)]" /></FormInput>
                 </div>
                 <FormInput label="Kategori" id="edit-category"><input value={editingProduct.category || ''} onChange={e => setEditingProduct({...editingProduct, category: e.target.value})} className="w-full px-4 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)]" /></FormInput>
                 <div className="flex justify-end space-x-3 mt-2"> <button type="button" onClick={() => setEditingProduct(null)} className="px-4 py-2 bg-[var(--surface-color)] text-[var(--text-color)] rounded-lg hover:bg-[var(--surface-hover-color)] border border-[var(--border-color)]">İptal</button> <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Kaydet</button> </div>
             </form>
         </div> </div> )}
         {stockModalProduct && <AddStockModal product={stockModalProduct} onClose={() => setStockModalProduct(null)} onAddStock={handleAddStock} />}
+        {priceUpdateProduct && <PriceUpdateModal product={priceUpdateProduct} onClose={() => setPriceUpdateProduct(null)} onPriceUpdate={handlePriceUpdate} />}
     </div> );
 };
+
+const PriceUpdateModal = ({ product, onClose, onPriceUpdate }) => {
+    const [newPrice, setNewPrice] = useState(product.salePrice || '');
+    const [increaseType, setIncreaseType] = useState('fixed');
+    const [increaseValue, setIncreaseValue] = useState('');
+
+    const calculateNewPrice = () => {
+        const basePrice = parseFloat(product.salePrice);
+        const value = parseFloat(increaseValue);
+        if (isNaN(basePrice) || isNaN(value)) return;
+
+        if (increaseType === 'percentage') {
+            setNewPrice((basePrice * (1 + value / 100)).toFixed(2));
+        } else {
+            setNewPrice((basePrice + value).toFixed(2));
+        }
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        const finalPrice = parseFloat(newPrice);
+        if (isNaN(finalPrice) || finalPrice < 0) {
+            toast.error("Lütfen geçerli bir fiyat girin.");
+            return;
+        }
+        onPriceUpdate(product, finalPrice);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
+            <div className="bg-[var(--bg-color)] p-6 rounded-xl shadow-2xl w-full max-w-md border border-[var(--border-color)]" onClick={e => e.stopPropagation()}>
+                <h3 className="text-xl font-semibold mb-4 text-[var(--text-color)]">Fiyat Güncelle: <span className="font-bold text-[var(--primary-600)]">{product.name}</span></h3>
+                <p className="text-sm text-[var(--text-muted-color)] mb-4">Mevcut Satış Fiyatı: {formatCurrency(product.salePrice)}</p>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="p-3 bg-[var(--surface-color)] rounded-lg border border-[var(--border-color)]">
+                        <p className="text-sm font-medium text-[var(--text-color)] mb-2">Hızlı Fiyat Artışı (Zam)</p>
+                        <div className="grid grid-cols-3 gap-2">
+                            <input type="number" placeholder="Değer" value={increaseValue} onChange={e => setIncreaseValue(e.target.value)} className="col-span-2 w-full px-3 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)] text-sm" />
+                            <select value={increaseType} onChange={e => setIncreaseType(e.target.value)} className="w-full px-3 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)] text-sm">
+                                <option value="fixed">₺</option>
+                                <option value="percentage">%</option>
+                            </select>
+                        </div>
+                        <button type="button" onClick={calculateNewPrice} className="w-full mt-2 text-sm text-center py-1.5 bg-[var(--primary-100)] text-[var(--primary-700)] rounded-md hover:bg-opacity-80">Hesapla ve Uygula</button>
+                    </div>
+                    <FormInput label="Yeni Satış Fiyatı (₺)" id="new-price" required>
+                        <input type="number" step="0.01" min="0" value={newPrice} onChange={e => setNewPrice(e.target.value)} autoFocus className="w-full px-4 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)]" />
+                    </FormInput>
+                    <div className="flex justify-end space-x-3 pt-2">
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-[var(--surface-color)] text-[var(--text-color)] rounded-lg hover:bg-[var(--surface-hover-color)] font-semibold text-sm border border-[var(--border-color)]">İptal</button>
+                        <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm">Fiyatı Kaydet</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
 
 const AddStockModal = ({ product, onClose, onAddStock }) => {
     const [amount, setAmount] = useState('');
@@ -1655,7 +2213,7 @@ const AddStockModal = ({ product, onClose, onAddStock }) => {
     );
 };
 
-const CreditPage = ({ sales, salesPath, loading }) => {
+const CreditPage = ({ sales, salesPath, loading, categoryDiscounts }) => {
     const unpaidCredits = useMemo(() => sales.filter(s => s.type === 'credit' && s.status === 'unpaid'), [sales]);
 
     const handleMarkAsPaid = useCallback(async (saleId) => {
@@ -1723,6 +2281,8 @@ const SalesHistory = ({ sales, loading, onCancelSale }) => {
             default: return null;
         }
     };
+    
+    const totalItemDiscount = (items) => items.reduce((acc, item) => acc + (item.discountApplied || 0), 0);
 
     return (
         <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-2 pb-4">
@@ -1754,13 +2314,22 @@ const SalesHistory = ({ sales, loading, onCancelSale }) => {
                                     <p className="text-[var(--text-color)]">
                                         <span className="font-medium">{item.quantity}x</span> {item.name}
                                     </p>
-                                    <p className={`text-[var(--text-muted-color)] ${s.type === 'cancelled' ? 'line-through' : ''}`}>
-                                        {s.type !== 'personnel' ? formatCurrency(item.price * item.quantity) : ''}
-                                    </p>
+                                    <div className={`text-[var(--text-muted-color)] flex items-center gap-2 ${s.type === 'cancelled' ? 'line-through' : ''}`}>
+                                        {item.discountApplied > 0 && (
+                                            <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">-{formatCurrency(item.discountApplied)}</span>
+                                        )}
+                                        <span>{s.type !== 'personnel' ? formatCurrency(item.price * item.quantity) : ''}</span>
+                                    </div>
                                 </div>
                             ))
                         ) : null }
                     </div>
+                    {(s.transactionDiscount > 0 || totalItemDiscount(s.items || []) > 0) && s.type !== 'cancelled' && (
+                        <div className="mt-2 border-t border-dashed border-[var(--border-color)] pt-2 space-y-1 text-xs text-right">
+                           <p>Ara Toplam: <span className="font-medium">{formatCurrency(s.subTotal || s.total + (s.transactionDiscount || 0))}</span></p>
+                           <p className="text-red-600">Kasa İndirimi: <span className="font-medium">-{formatCurrency(s.transactionDiscount || 0)}</span></p>
+                        </div>
+                    )}
                 </motion.div>
             ))}
         </div>
