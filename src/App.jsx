@@ -85,6 +85,173 @@ const calculateDiscountedPrice = (product, categoryDiscounts = []) => {
     return { finalPrice, discountApplied, originalPrice, appliedRule };
 };
 
+// CSV export helpers
+const convertToCSV = (headers, rows) => {
+    const escapeCell = (value) => {
+        if (value === null || value === undefined) return '';
+        const str = String(value).replace(/"/g, '""');
+        return /[",\n]/.test(str) ? `"${str}"` : str;
+    };
+    const headerLine = headers.map(h => escapeCell(h.label)).join(',');
+    const dataLines = rows.map(row => headers.map(h => escapeCell(typeof h.value === 'function' ? h.value(row) : row[h.value])).join(','));
+    return [headerLine, ...dataLines].join('\n');
+};
+
+const downloadCSV = (filename, headers, rows) => {
+    try {
+        const csv = convertToCSV(headers, rows);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        toast.success('CSV indirilmeye hazır.');
+    } catch (e) {
+        console.error('CSV export error:', e);
+        toast.error('CSV oluşturulurken bir hata oluştu.');
+    }
+};
+
+// Print helpers for purchase receipts
+const generatePurchaseReceiptHTML = (purchase) => {
+    const safe = (v) => (v === null || v === undefined) ? '' : String(v);
+    const dateStr = purchase.purchaseDate && purchase.purchaseDate.toDate ? purchase.purchaseDate.toDate().toLocaleString('tr-TR') : '';
+    const supplier = safe(purchase.supplier);
+    const invoice = safe(purchase.invoiceNumber);
+    const notes = safe(purchase.notes);
+    const items = Array.isArray(purchase.items) && purchase.items.length > 0
+        ? purchase.items
+        : [{
+            barcode: safe(purchase.barcode),
+            name: safe(purchase.productName),
+            quantity: Number(purchase.quantity || 0),
+            purchasePrice: Number(purchase.purchasePrice || 0),
+            lineTotal: Number(purchase.totalCost || 0)
+        }];
+    const subTotal = Number(purchase.subTotal ?? items.reduce((s,i)=> s + (i.lineTotal ?? (i.quantity * i.purchasePrice)), 0));
+    const vatRate = Number(purchase.vatRate || 0);
+    const vatAmount = Number(purchase.vatAmount ?? (subTotal * vatRate / 100));
+    const totalCost = Number(purchase.totalCost ?? (subTotal + vatAmount));
+
+    const rowsHtml = items.map((it, idx) => `
+        <tr>
+            <td>${idx + 1}</td>
+            <td>${safe(it.barcode)}</td>
+            <td>${safe(it.name)}</td>
+            <td class="right">${Number(it.quantity || 0)}</td>
+            <td class="right">${formatCurrency(Number(it.purchasePrice || 0))}</td>
+            <td class="right">${formatCurrency(Number(it.lineTotal ?? (Number(it.quantity||0) * Number(it.purchasePrice||0))))}</td>
+        </tr>
+    `).join('');
+
+    return `<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Satın Alma Fişi</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Inter, Arial, sans-serif; padding: 24px; color: #0f172a; }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  .muted { color: #64748b; font-size: 12px; }
+  .section { margin-top: 16px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th, td { border: 1px solid #e2e8f0; padding: 8px; font-size: 12px; }
+  th { background: #f8fafc; text-align: left; }
+  .right { text-align: right; }
+  .totals { margin-top: 12px; width: 100%; }
+  .totals td { border: none; padding: 4px 0; }
+  .totals .label { color: #64748b; }
+  .totals .value { text-align: right; font-weight: 600; }
+  @media print { button { display: none; } body { padding: 0; } }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .brand { font-weight: 800; color: #0ea5e9; }
+  .notes { margin-top: 8px; font-size: 12px; color: #334155; }
+  .actions { margin-top: 16px; }
+  .btn { padding: 8px 12px; border-radius: 8px; border: 1px solid #e2e8f0; background: #f8fafc; cursor: pointer; }
+  .btn:hover { background: #f1f5f9; }
+  .foot { margin-top: 24px; font-size: 11px; color: #94a3b8; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .box { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; }
+  .title { font-weight: 600; margin-bottom: 4px; }
+  .kv { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+  .kv .k { color: #64748b; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div class="brand">${(purchase.companyName || 'Stok Takip')}</div>
+      <h1>Satın Alma Fişi</h1>
+      <div class="muted">Tarih: <span class="mono">${dateStr}</span></div>
+    </div>
+    <div class="grid2" style="min-width:280px;">
+      <div class="box">
+        <div class="title">Tedarikçi</div>
+        <div class="kv"><span class="k">Ad</span><span>${supplier || '-'}</span></div>
+        <div class="kv"><span class="k">Fatura No</span><span class="mono">${invoice || '-'}</span></div>
+      </div>
+      <div class="box">
+        <div class="title">Özet</div>
+        <div class="kv"><span class="k">Ara Toplam</span><span class="value">${formatCurrency(subTotal)}</span></div>
+        <div class="kv"><span class="k">KDV (${vatRate}%)</span><span class="value">${formatCurrency(vatAmount)}</span></div>
+        <div class="kv"><span class="k">Genel Toplam</span><span class="value">${formatCurrency(totalCost)}</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Barkod</th>
+          <th>Ürün</th>
+          <th class="right">Miktar</th>
+          <th class="right">Birim Alış</th>
+          <th class="right">Tutar</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+  </div>
+
+  ${notes ? `<div class="notes"><strong>Not:</strong> ${notes}</div>` : ''}
+
+  <div class="actions">
+    <button class="btn" onclick="window.print()">Yazdır</button>
+  </div>
+
+  <div class="foot">Bu fiş Stok Takip Sistemi tarafından oluşturulmuştur.</div>
+</body>
+</html>`;
+};
+
+const printPurchaseReceipt = (purchase) => {
+    try {
+        const html = generatePurchaseReceiptHTML({ ...purchase, companyName: (purchase.companyName || window?.__company_name || '') });
+        const win = window.open('', '_blank', 'noopener,noreferrer,width=800,height=900');
+        if (!win) {
+            toast.error('Yazdırma penceresi engellendi. Lütfen açılır pencere iznini verin.');
+            return;
+        }
+        win.document.open();
+        win.document.write(html);
+        win.document.close();
+        // Some browsers auto block; user can press the print button in the page
+    } catch (e) {
+        console.error('Print error:', e);
+        toast.error('Fiş oluşturulurken bir hata oluştu.');
+    }
+};
+
 
 // --- Contexts ---
 const AuthContext = createContext(null);
@@ -579,10 +746,23 @@ const StockAppLayout = ({ user }) => {
     const [products, setProducts] = useState([]);
     const [sales, setSales] = useState([]);
     const [categoryDiscounts, setCategoryDiscounts] = useState([]);
-    const [loading, setLoading] = useState({ products: true, sales: true, settings: true, discounts: true });
+    const [purchases, setPurchases] = useState([]);
+    const [suppliers, setSuppliers] = useState([]);
+    const [loading, setLoading] = useState({ products: true, sales: true, settings: true, discounts: true, purchases: true, suppliers: true });
     const [activeTab, setActiveTab] = useState('dashboard');
     const [searchTerm, setSearchTerm] = useState('');
-    const [settings, setSettings] = useState({ theme: 'light', palette: 'teal', criticalStockLevel: 5 });
+    const [settings, setSettings] = useState({ 
+        theme: 'light', 
+        palette: 'teal', 
+        criticalStockLevel: 5, 
+        costMethod: 'last', 
+        defaultMarkupPercent: 0, 
+        autoUpdateSalePrice: false,
+        companyName: '',
+        companyLogoUrl: '',
+        companyAddress: '',
+        companyTaxNumber: ''
+    });
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
     // YENİ: Satış görünümü (hızlı veya sepet) ve sepet state'i
@@ -593,6 +773,8 @@ const StockAppLayout = ({ user }) => {
     const salesPath = useMemo(() => `artifacts/${appId}/users/${userId}/sales`, [userId]);
     const settingsPath = useMemo(() => `artifacts/${appId}/users/${userId}/settings`, [userId]);
     const categoryDiscountsPath = useMemo(() => `artifacts/${appId}/users/${userId}/categoryDiscounts`, [userId]);
+    const purchasesPath = useMemo(() => `artifacts/${appId}/users/${userId}/purchases`, [userId]);
+    const suppliersPath = useMemo(() => `artifacts/${appId}/users/${userId}/suppliers`, [userId]);
 
     useEffect(() => {
         if (!userId) return;
@@ -635,13 +817,33 @@ const StockAppLayout = ({ user }) => {
             setLoading(prev => ({ ...prev, discounts: false }));
         });
 
+        const purchasesQuery = query(collection(db, purchasesPath), orderBy('purchaseDate', 'desc'));
+        const unsubscribePurchases = onSnapshot(purchasesQuery, (snapshot) => {
+            setPurchases(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setLoading(prev => ({ ...prev, purchases: false }));
+        }, (error) => {
+            console.error("Error fetching purchases:", error);
+            setLoading(prev => ({ ...prev, purchases: false }));
+        });
+
+        const suppliersQuery = query(collection(db, suppliersPath), orderBy('name', 'asc'));
+        const unsubscribeSuppliers = onSnapshot(suppliersQuery, (snapshot) => {
+            setSuppliers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setLoading(prev => ({ ...prev, suppliers: false }));
+        }, (error) => {
+            console.error("Error fetching suppliers:", error);
+            setLoading(prev => ({ ...prev, suppliers: false }));
+        });
+
         return () => { 
             unsubscribeSettings();
             unsubscribeProducts(); 
             unsubscribeSales(); 
             unsubscribeDiscounts();
+            unsubscribePurchases();
+            unsubscribeSuppliers();
         };
-    }, [userId, productsPath, salesPath, settingsPath, categoryDiscountsPath]);
+    }, [userId, productsPath, salesPath, settingsPath, categoryDiscountsPath, purchasesPath, suppliersPath]);
 
     const handleUpdateSettings = async (newSettings) => {
         const settingsRef = doc(db, settingsPath, 'appSettings');
@@ -821,7 +1023,7 @@ const StockAppLayout = ({ user }) => {
     };
 
 
-    if (loading.products || loading.sales || loading.settings || loading.discounts) {
+    if (loading.products || loading.sales || loading.settings || loading.discounts || loading.purchases || loading.suppliers) {
         return <LoadingSpinner fullPage={true} message="Veriler yükleniyor..." />;
     }
 
@@ -863,6 +1065,8 @@ const StockAppLayout = ({ user }) => {
                                 {activeTab === 'discounts' && <DiscountsPage products={products} categoryDiscounts={categoryDiscounts} categoryDiscountsPath={categoryDiscountsPath} onUpdateProduct={handleAddOrUpdateProduct} />}
                                 {activeTab === 'history' && <SalesHistory sales={sales} loading={loading.sales} onCancelSale={handleCancelSale} />}
                                 {activeTab === 'credit' && <CreditPage sales={sales} salesPath={salesPath} loading={loading.sales} categoryDiscounts={categoryDiscounts} />}
+                                {activeTab === 'purchases' && <PurchasesPage products={products} purchases={purchases} suppliers={suppliers} productsPath={productsPath} purchasesPath={purchasesPath} suppliersPath={suppliersPath} />}
+                                {activeTab === 'suppliers' && <SuppliersPage suppliers={suppliers} suppliersPath={suppliersPath} purchases={purchases} />}
                             </motion.div>
                         </AnimatePresence>
                     </motion.div>
@@ -1325,6 +1529,8 @@ const Tabs = ({ activeTab, setActiveTab }) => {
         { id: 'statistics', label: 'İstatistikler', icon: BarChart3 }, 
         { id: 'stock', label: 'Stok Listesi', icon: Package }, 
         { id: 'discounts', label: 'İndirimler', icon: Percent },
+        { id: 'purchases', label: 'Satın Alma', icon: FileText },
+        { id: 'suppliers', label: 'Tedarikçiler', icon: Users },
         { id: 'credit', label: 'Veresiye', icon: BookUser }, 
         { id: 'history', label: 'Satış Geçmişi', icon: History }
     ]; 
@@ -1689,7 +1895,7 @@ const SettingsPanel = ({ currentSettings, onSave, onClose }) => {
                 transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                 className="fixed top-0 right-0 h-full w-full max-w-sm bg-[var(--bg-color)] shadow-2xl z-50 flex flex-col"
             >
-                <div className="flex items-center justify-between p-4 border-b border-[var(--border-color)]">
+                 <div className="flex items-center justify-between p-4 border-b border-[var(--border-color)]">
                     <h3 className="text-xl font-semibold text-[var(--text-color)]">Ayarlar</h3>
                     <button onClick={handleClose} className="p-2 rounded-full hover:bg-[var(--surface-hover-color)]">
                         <X size={20} />
@@ -1730,6 +1936,38 @@ const SettingsPanel = ({ currentSettings, onSave, onClose }) => {
                             onChange={(e) => setTempSettings(s => ({...s, criticalStockLevel: parseInt(e.target.value, 10) || 0}))}
                             className="w-full max-w-xs px-4 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)]"
                         />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-[var(--text-color)] mb-1">Maliyet Yöntemi</label>
+                        <p className="text-xs text-[var(--text-muted-color)] mb-2">Ürün maliyetini nasıl güncelleyelim?</p>
+                        <div className="flex gap-2">
+                            <button onClick={() => setTempSettings(s => ({...s, costMethod: 'last'}))} className={`px-3 py-1.5 rounded-lg border ${tempSettings.costMethod === 'last' ? 'border-[var(--primary-500)] text-[var(--primary-600)]' : 'border-[var(--border-color)] text-[var(--text-muted-color)]'}`}>Son Alış</button>
+                            <button onClick={() => setTempSettings(s => ({...s, costMethod: 'weighted'}))} className={`px-3 py-1.5 rounded-lg border ${tempSettings.costMethod === 'weighted' ? 'border-[var(--primary-500)] text-[var(--primary-600)]' : 'border-[var(--border-color)] text-[var(--text-muted-color)]'}`}>Ağırlıklı Ortalama</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-[var(--text-color)] mb-1">Otomatik Satış Fiyatı</label>
+                        <p className="text-xs text-[var(--text-muted-color)] mb-2">Yeni maliyete göre satış fiyatını öner veya otomatik güncelle.</p>
+                        <div className="flex items-center gap-3">
+                            <label className="text-sm text-[var(--text-muted-color)]">Varsayılan Kâr Marjı (%)</label>
+                            <input type="number" step="0.1" min="0" value={tempSettings.defaultMarkupPercent || 0} onChange={(e) => setTempSettings(s => ({...s, defaultMarkupPercent: parseFloat(e.target.value || '0')}))} className="w-24 px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                            <label className="flex items-center gap-2 text-sm">
+                                <input type="checkbox" checked={!!tempSettings.autoUpdateSalePrice} onChange={(e) => setTempSettings(s => ({...s, autoUpdateSalePrice: e.target.checked}))} />
+                                Satış fiyatını otomatik güncelle
+                            </label>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-[var(--text-color)] mb-2">Firma Bilgileri (Fiş)</label>
+                        <div className="grid grid-cols-1 gap-3">
+                            <input value={tempSettings.companyName || ''} onChange={(e) => setTempSettings(s => ({...s, companyName: e.target.value}))} placeholder="Firma Adı" className="px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                            <input value={tempSettings.companyLogoUrl || ''} onChange={(e) => setTempSettings(s => ({...s, companyLogoUrl: e.target.value}))} placeholder="Logo URL (opsiyonel)" className="px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                            <input value={tempSettings.companyAddress || ''} onChange={(e) => setTempSettings(s => ({...s, companyAddress: e.target.value}))} placeholder="Adres (opsiyonel)" className="px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                            <input value={tempSettings.companyTaxNumber || ''} onChange={(e) => setTempSettings(s => ({...s, companyTaxNumber: e.target.value}))} placeholder="Vergi No (opsiyonel)" className="px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                        </div>
                     </div>
                 </div>
                 <div className="p-4 border-t border-[var(--border-color)] bg-[var(--surface-color)]">
@@ -2065,8 +2303,26 @@ const ProductList = ({ products, loading, onUpdate, onDelete, productsPath, sale
     if (loading) return <LoadingSpinner />;
     if (products.length === 0 && !searchTerm) return <EmptyState icon={<Package size={40}/>} message="Henüz ürün eklenmemiş." description="Başlamak için sol taraftaki 'Ürün Yönetimi' panelini kullanabilirsiniz." />;
     
+    const handleExportProducts = () => {
+        const headers = [
+            { label: 'Barkod', value: 'barcode' },
+            { label: 'Ürün Adı', value: 'name' },
+            { label: 'Kategori', value: row => row.category || '' },
+            { label: 'Stok', value: 'stock' },
+            { label: 'Kritik Stok', value: row => row.criticalStockLevel ?? '' },
+            { label: 'Alış Fiyatı', value: row => row.purchasePrice ?? '' },
+            { label: 'Satış Fiyatı', value: row => row.salePrice ?? '' }
+        ];
+        downloadCSV(`urunler_${new Date().toISOString().slice(0,10)}.csv`, headers, products);
+    };
+
     return ( <div className="space-y-3">
-        <div className="relative"> <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted-color)]" size={20} /> <input type="text" placeholder="Ürün adı veya barkod ile ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full px-10 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)]" /> </div>
+        <div className="flex items-center gap-2">
+            <div className="relative flex-1"> <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted-color)]" size={20} /> <input type="text" placeholder="Ürün adı veya barkod ile ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full px-10 py-2 border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary-500)] transition bg-[var(--bg-color)] text-[var(--text-color)]" /> </div>
+            <button onClick={handleExportProducts} className="px-3 py-2 bg-[var(--surface-color)] border border-[var(--border-color)] rounded-lg text-[var(--text-color)] hover:bg-[var(--surface-hover-color)] flex items-center gap-1 text-sm">
+                <Download size={16}/> CSV İndir
+            </button>
+        </div>
         {products.length === 0 && searchTerm && ( <EmptyState icon={<Search size={40}/>} message="Arama Sonucu Bulunamadı" description={`'${searchTerm}' için bir sonuç bulunamadı. Lütfen farklı bir anahtar kelime deneyin.`} /> )}
         <div className="max-h-[55vh] overflow-y-auto pr-2 space-y-2 pb-4"> {products.map(p => (
             <motion.div layout key={p.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-3 rounded-lg bg-[var(--surface-color)] hover:bg-[var(--surface-hover-color)] transition-colors border border-[var(--border-color)]">
@@ -2284,8 +2540,28 @@ const SalesHistory = ({ sales, loading, onCancelSale }) => {
     
     const totalItemDiscount = (items) => items.reduce((acc, item) => acc + (item.discountApplied || 0), 0);
 
+    const handleExportSales = () => {
+        const headers = [
+            { label: 'Tarih', value: (s) => (s.saleDate && s.saleDate.toDate ? s.saleDate.toDate().toLocaleString('tr-TR') : '') },
+            { label: 'Tür', value: 'type' },
+            { label: 'Ödeme', value: (s) => s.paymentMethod || '' },
+            { label: 'Durum', value: (s) => s.status || '' },
+            { label: 'Toplam', value: (s) => s.total },
+            { label: 'Ara Toplam', value: (s) => s.subTotal ?? '' },
+            { label: 'Kasa İndirimi', value: (s) => s.transactionDiscount ?? 0 },
+            { label: 'Kalemler', value: (s) => (s.items ? s.items.map(i => `${i.quantity}x ${i.name}`).join(' | ') : '') }
+        ];
+        downloadCSV(`satis_gecmisi_${new Date().toISOString().slice(0,10)}.csv`, headers, sales);
+    };
+
     return (
-        <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-2 pb-4">
+        <div>
+            <div className="flex justify-end pb-2">
+                <button onClick={handleExportSales} className="px-3 py-2 bg-[var(--surface-color)] border border-[var(--border-color)] rounded-lg text-[var(--text-color)] hover:bg-[var(--surface-hover-color)] flex items-center gap-1 text-sm">
+                    <Download size={16}/> CSV İndir
+                </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-2 pb-4">
             {sales.map(s => (
                 <motion.div layout key={s.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-3 rounded-lg bg-[var(--surface-color)] border border-[var(--border-color)]">
                     <div className="flex justify-between items-start">
@@ -2331,7 +2607,461 @@ const SalesHistory = ({ sales, loading, onCancelSale }) => {
                         </div>
                     )}
                 </motion.div>
-            ))}
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// Satın Alma Sayfası
+const PurchasesPage = ({ products, purchases, suppliers, productsPath, purchasesPath, suppliersPath }) => {
+    const [form, setForm] = useState({ barcode: '', name: '', quantity: '', purchasePrice: '' });
+    const [header, setHeader] = useState({ supplier: '', invoiceNumber: '', notes: '', vatRate: 0 });
+    const [items, setItems] = useState([]);
+    const [showScanner, setShowScanner] = useState(false);
+    const [supplierFilter, setSupplierFilter] = useState('');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+    const [selectedPurchase, setSelectedPurchase] = useState(null);
+
+    const selectedProduct = useMemo(() => products.find(p => p.barcode === form.barcode), [products, form.barcode]);
+    const uniqueSuppliers = useMemo(() => suppliers && suppliers.length > 0 ? suppliers.map(s => s.name) : Array.from(new Set((purchases || []).map(p => p.supplier).filter(Boolean))), [suppliers, purchases]);
+
+    const filteredPurchases = useMemo(() => {
+        let list = purchases || [];
+        if (supplierFilter) {
+            list = list.filter(p => (p.supplier || '').toLowerCase().includes(supplierFilter.toLowerCase()));
+        }
+        if (dateFrom) {
+            const start = new Date(dateFrom);
+            start.setHours(0,0,0,0);
+            list = list.filter(p => p.purchaseDate && p.purchaseDate.toDate && p.purchaseDate.toDate() >= start);
+        }
+        if (dateTo) {
+            const end = new Date(dateTo);
+            end.setHours(23,59,59,999);
+            list = list.filter(p => p.purchaseDate && p.purchaseDate.toDate && p.purchaseDate.toDate() <= end);
+        }
+        return list;
+    }, [purchases, supplierFilter, dateFrom, dateTo]);
+
+    const handleScan = (decodedText) => {
+        setForm(prev => ({ ...prev, barcode: decodedText }));
+        setShowScanner(false);
+    };
+
+    const handleAddLine = (e) => {
+        e.preventDefault();
+        const { barcode, name, quantity, purchasePrice } = form;
+        if (!barcode || !quantity || !purchasePrice) { toast.warning('Barkod, miktar ve alış fiyatı zorunludur.'); return; }
+        const qty = parseInt(quantity, 10);
+        const cost = parseFloat(purchasePrice);
+        if (isNaN(qty) || qty <= 0 || isNaN(cost) || cost < 0) { toast.error('Geçerli miktar ve fiyat girin.'); return; }
+        const productName = (products.find(p => p.barcode === barcode || p.id === barcode)?.name) || (name && name.trim()) || `Ürün-${barcode}`;
+        setItems(prev => {
+            const existingIndex = prev.findIndex(i => i.barcode === barcode);
+            if (existingIndex >= 0) {
+                const copy = [...prev];
+                copy[existingIndex] = { ...copy[existingIndex], quantity: copy[existingIndex].quantity + qty, purchasePrice: cost };
+                return copy;
+            }
+            return [...prev, { barcode, name: productName, quantity: qty, purchasePrice: cost }];
+        });
+        setForm({ barcode: '', name: '', quantity: '', purchasePrice: '' });
+    };
+
+    const subTotal = useMemo(() => items.reduce((sum, i) => sum + i.quantity * i.purchasePrice, 0), [items]);
+    const vatAmount = useMemo(() => subTotal * (Number(header.vatRate) || 0) / 100, [subTotal, header.vatRate]);
+    const grandTotal = useMemo(() => subTotal + vatAmount, [subTotal, vatAmount]);
+
+    const finalizePurchase = async () => {
+        if (items.length === 0) { toast.warning('Sepete en az bir kalem ekleyin.'); return; }
+        const batch = writeBatch(db);
+        const purchaseRef = doc(collection(db, purchasesPath));
+
+        // ürünleri güncelle/oluştur
+        for (const line of items) {
+            const productRef = doc(db, productsPath, line.barcode);
+            const existing = products.find(p => p.id === line.barcode || p.barcode === line.barcode);
+            if (existing) {
+                // Maliyet yöntemi
+                let newPurchasePrice = line.purchasePrice;
+                if (settings.costMethod === 'weighted') {
+                    const currentStock = Number(existing.stock || 0);
+                    const currentCost = Number(existing.purchasePrice || 0);
+                    const totalCost = currentStock * currentCost + line.quantity * line.purchasePrice;
+                    const totalQty = currentStock + line.quantity;
+                    newPurchasePrice = totalQty > 0 ? totalCost / totalQty : line.purchasePrice;
+                }
+
+                const updateData = { stock: increment(line.quantity), purchasePrice: newPurchasePrice, lastUpdatedAt: serverTimestamp() };
+                if (settings.autoUpdateSalePrice && settings.defaultMarkupPercent >= 0) {
+                    const suggestedSalePrice = Number(newPurchasePrice) * (1 + Number(settings.defaultMarkupPercent || 0) / 100);
+                    updateData.salePrice = parseFloat(suggestedSalePrice.toFixed(2));
+                }
+                batch.update(productRef, updateData);
+            } else {
+                batch.set(productRef, {
+                    barcode: line.barcode,
+                    name: line.name,
+                    stock: line.quantity,
+                    purchasePrice: line.purchasePrice,
+                    salePrice: settings.autoUpdateSalePrice ? parseFloat((line.purchasePrice * (1 + Number(settings.defaultMarkupPercent || 0) / 100)).toFixed(2)) : line.purchasePrice,
+                    createdAt: serverTimestamp(),
+                    criticalStockLevel: 5
+                });
+            }
+        }
+
+        batch.set(purchaseRef, {
+            purchaseDate: serverTimestamp(),
+            supplier: header.supplier || '',
+            invoiceNumber: header.invoiceNumber || '',
+            notes: header.notes || '',
+            vatRate: Number(header.vatRate) || 0,
+            subTotal,
+            vatAmount,
+            totalCost: grandTotal,
+            items: items.map(i => ({ barcode: i.barcode, name: i.name, quantity: i.quantity, purchasePrice: i.purchasePrice, lineTotal: i.quantity * i.purchasePrice }))
+        });
+
+        await toast.promise(batch.commit(), { loading: 'Satın alma kaydediliyor...', success: 'Satın alma kaydedildi.', error: 'Satın alma sırasında bir hata oluştu.' });
+        setItems([]);
+        setHeader({ supplier: '', invoiceNumber: '', notes: '', vatRate: 0 });
+    };
+
+    const handleExportPurchases = () => {
+        const headers = [
+            { label: 'Tarih', value: (p) => (p.purchaseDate && p.purchaseDate.toDate ? p.purchaseDate.toDate().toLocaleString('tr-TR') : '') },
+            { label: 'Barkod', value: 'barcode' },
+            { label: 'Ürün Adı', value: 'productName' },
+            { label: 'Tedarikçi', value: (p) => p.supplier || '' },
+            { label: 'Miktar', value: 'quantity' },
+            { label: 'Alış Fiyatı', value: 'purchasePrice' },
+            { label: 'Fatura No', value: (p) => p.invoiceNumber || '' },
+            { label: 'Not', value: (p) => p.notes || '' },
+            { label: 'Toplam', value: 'totalCost' }
+        ];
+        downloadCSV(`satinalmalar_${new Date().toISOString().slice(0,10)}.csv`, headers, filteredPurchases);
+    };
+
+    return (
+        <div className="space-y-4">
+            <div className="bg-[var(--surface-color)] p-4 rounded-lg border border-[var(--border-color)]">
+                <h3 className="font-semibold mb-3 text-[var(--text-color)] flex items-center gap-2"><FileText size={18}/> Yeni Satın Alma</h3>
+                {/* Başlık bilgileri */}
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-4">
+                    <div className="md:col-span-2">
+                        <label className="block text-xs text-[var(--text-muted-color)] mb-1">Tedarikçi</label>
+                        <input list="supplier-list" value={header.supplier} onChange={e => setHeader(h => ({...h, supplier: e.target.value}))} placeholder="Firma/kişi" className="w-full px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                        <datalist id="supplier-list">
+                            {uniqueSuppliers.map(s => <option key={s} value={s} />)}
+                        </datalist>
+                    </div>
+                    <div>
+                        <label className="block text-xs text-[var(--text-muted-color)] mb-1">Fatura No</label>
+                        <input value={header.invoiceNumber} onChange={e => setHeader(h => ({...h, invoiceNumber: e.target.value}))} placeholder="Opsiyonel" className="w-full px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                    </div>
+                    <div className="md:col-span-2">
+                        <label className="block text-xs text-[var(--text-muted-color)] mb-1">Not</label>
+                        <input value={header.notes} onChange={e => setHeader(h => ({...h, notes: e.target.value}))} placeholder="Opsiyonel not" className="w-full px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                    </div>
+                    <div>
+                        <label className="block text-xs text=[var(--text-muted-color)] mb-1">KDV (%)</label>
+                        <select value={header.vatRate} onChange={e => setHeader(h => ({...h, vatRate: e.target.value}))} className="w-full px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]">
+                            <option value={0}>0</option>
+                            <option value={1}>1</option>
+                            <option value={10}>10</option>
+                            <option value={20}>20</option>
+                        </select>
+                    </div>
+                </div>
+
+                {/* Kalem ekleme */}
+                <form onSubmit={handleAddLine} className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+                    <div className="md:col-span-2">
+                        <label className="block text-xs text-[var(--text-muted-color)] mb-1">Barkod</label>
+                        <div className="flex items-center gap-2">
+                            <input value={form.barcode} onChange={e => setForm(f => ({...f, barcode: e.target.value}))} placeholder="Barkod..." className="w-full px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                            <button type="button" onClick={() => setShowScanner(true)} className="p-2 rounded-md hover:bg-[var(--surface-hover-color)]" title="Kamera ile tara"><Camera size={18}/></button>
+                        </div>
+                    </div>
+                    <div className="md:col-span-2">
+                        <label className="block text-xs text-[var(--text-muted-color)] mb-1">Ürün Adı</label>
+                        <input value={selectedProduct ? selectedProduct.name : form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} placeholder="Ürün adı..." className="w-full px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                    </div>
+                    <div>
+                        <label className="block text-xs text-[var(--text-muted-color)] mb-1">Miktar</label>
+                        <input type="number" min="1" value={form.quantity} onChange={e => setForm(f => ({...f, quantity: e.target.value}))} placeholder="0" className="w-full px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                    </div>
+                    <div>
+                        <label className="block text-xs text-[var(--text-muted-color)] mb-1">Alış Fiyatı (₺)</label>
+                        <input type="number" step="0.01" min="0" value={form.purchasePrice} onChange={e => setForm(f => ({...f, purchasePrice: e.target.value}))} placeholder="0.00" className="w-full px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                    </div>
+                    <div className="md:col-span-6 flex justify-end">
+                        <button type="submit" className="bg-[var(--primary-600)] text-white font-bold py-2 px-4 rounded-lg hover:bg-[var(--primary-700)]">Kalem Ekle</button>
+                    </div>
+                </form>
+                {showScanner && <CameraScanner onScanSuccess={handleScan} onClose={() => setShowScanner(false)} />}
+
+                {/* Sepet */}
+                <div className="mt-4 border-t border-[var(--border-color)] pt-3">
+                    {items.length === 0 ? (
+                        <p className="text-sm text-[var(--text-muted-color)]">Sepette kalem yok.</p>
+                    ) : (
+                        <div className="space-y-2">
+                            {items.map((it, idx) => (
+                                <div key={it.barcode + idx} className="grid grid-cols-12 gap-2 items-center bg-[var(--bg-color)] p-2 rounded-md border border-[var(--border-color)]">
+                                    <div className="col-span-4">
+                                        <p className="text-sm font-medium text-[var(--text-color)] truncate">{it.name}</p>
+                                        <p className="text-xs text-[var(--text-muted-color)]">{it.barcode}</p>
+                                    </div>
+                                    <div className="col-span-2">
+                                        <input type="number" min="1" value={it.quantity} onChange={e => setItems(arr => arr.map((x,i) => i===idx ? { ...x, quantity: parseInt(e.target.value || '0',10) } : x))} className="w-full px-2 py-1 border border-[var(--border-color)] rounded" />
+                                    </div>
+                                    <div className="col-span-3">
+                                        <input type="number" step="0.01" min="0" value={it.purchasePrice} onChange={e => setItems(arr => arr.map((x,i) => i===idx ? { ...x, purchasePrice: parseFloat(e.target.value || '0') } : x))} className="w-full px-2 py-1 border border-[var(--border-color)] rounded" />
+                                    </div>
+                                    <div className="col-span-2 text-right">
+                                        <span className="text-sm font-semibold">{formatCurrency(it.quantity * it.purchasePrice)}</span>
+                                    </div>
+                                    <div className="col-span-1 text-right">
+                                        <button onClick={() => setItems(arr => arr.filter((_,i) => i!==idx))} className="p-1.5 text-red-600 hover:bg-red-100 rounded-md"><Trash2 size={14}/></button>
+                                    </div>
+                                </div>
+                            ))}
+                            <div className="text-right space-y-1 pt-2 border-t border-dashed border-[var(--border-color)]">
+                                <div className="text-sm text-[var(--text-muted-color)]">Ara Toplam: <span className="font-medium text-[var(--text-color)]">{formatCurrency(subTotal)}</span></div>
+                                <div className="text-sm text-[var(--text-muted-color)]">KDV ({header.vatRate}%): <span className="font-medium text-[var(--text-color)]">{formatCurrency(vatAmount)}</span></div>
+                                <div className="text-base font-bold">Genel Toplam: {formatCurrency(grandTotal)}</div>
+                            </div>
+                            <div className="flex justify-end">
+                                <button onClick={finalizePurchase} className="bg-[var(--primary-600)] text-white font-bold py-2 px-4 rounded-lg hover:bg-[var(--primary-700)]">Satın Almayı Kaydet</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <h3 className="font-semibold text-[var(--text-color)]">Son Satın Almalar</h3>
+                <div className="flex flex-1 gap-2 md:justify-end">
+                    <input list="supplier-list" value={supplierFilter} onChange={e => setSupplierFilter(e.target.value)} placeholder="Tedarikçiye göre filtrele" className="px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)] text-sm w-48" />
+                    <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)] text-sm" />
+                    <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)] text-sm" />
+                    <button onClick={() => { setSupplierFilter(''); setDateFrom(''); setDateTo(''); }} className="px-3 py-2 bg-[var(--surface-color)] border border-[var(--border-color)] rounded-lg text-[var(--text-color)] hover:bg-[var(--surface-hover-color)] text-sm">Temizle</button>
+                    <button onClick={handleExportPurchases} className="px-3 py-2 bg-[var(--surface-color)] border border-[var(--border-color)] rounded-lg text-[var(--text-color)] hover:bg-[var(--surface-hover-color)] flex items-center gap-1 text-sm">
+                        <Download size={16}/> CSV İndir
+                    </button>
+                </div>
+            </div>
+            <div className="max-h-[55vh] overflow-y-auto pr-2 space-y-2 pb-4">
+                {filteredPurchases.length === 0 ? (
+                    <EmptyState icon={<FileText size={40}/>} message="Henüz satın alma kaydı yok." />
+                ) : filteredPurchases.map(p => (
+                    <button key={p.id} onClick={() => setSelectedPurchase(p)} className="w-full text-left p-3 rounded-lg bg-[var(--surface-color)] border border-[var(--border-color)] hover:bg-[var(--surface-hover-color)]">
+                        <div className="flex justify-between items-center">
+                            <div>
+                                <p className="text-sm font-semibold text-[var(--text-color)]">{p.productName}</p>
+                                <p className="text-xs text-[var(--text-muted-color)]">{p.barcode} • {p.purchaseDate && p.purchaseDate.toDate ? p.purchaseDate.toDate().toLocaleString('tr-TR') : ''}</p>
+                                <p className="text-xs text-[var(--text-muted-color)]">{p.supplier ? `Tedarikçi: ${p.supplier}` : ''} {p.invoiceNumber ? ` • Fatura: ${p.invoiceNumber}` : ''}</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-sm text-[var(--text-muted-color)]">{p.quantity} adet x {formatCurrency(p.purchasePrice)}</p>
+                                <p className="font-bold text-[var(--text-color)]">{formatCurrency(p.totalCost)}</p>
+                            </div>
+                        </div>
+                    </button>
+                ))}
+            </div>
+
+            {selectedPurchase && (
+                <PurchaseDetailModal 
+                    purchase={selectedPurchase}
+                    onClose={() => setSelectedPurchase(null)}
+                    productsPath={productsPath}
+                    purchasesPath={purchasesPath}
+                />
+            )}
+        </div>
+    );
+};
+
+const PurchaseDetailModal = ({ purchase, onClose, productsPath, purchasesPath }) => {
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const handleDelete = async () => {
+        if (isDeleting) return;
+        setIsDeleting(true);
+        try {
+            // Stok geri alma + satın alma kaydını silme
+            const batch = writeBatch(db);
+            const purchaseRef = doc(db, purchasesPath, purchase.id);
+            const productRef = doc(db, productsPath, purchase.barcode);
+            if (purchase.quantity && purchase.quantity > 0) {
+                batch.update(productRef, { stock: increment(-purchase.quantity) });
+            }
+            batch.delete(purchaseRef);
+            await toast.promise(batch.commit(), {
+                loading: 'Satın alma siliniyor...',
+                success: 'Satın alma kaydı silindi ve stok geri alındı.',
+                error: 'Silme sırasında bir hata oluştu.'
+            });
+            onClose();
+        } catch (e) {
+            setIsDeleting(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
+            <div className="bg-[var(--bg-color)] p-6 rounded-xl shadow-2xl w-full max-w-md border border-[var(--border-color)]" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xl font-semibold text-[var(--text-color)]">Satın Alma Detayı</h3>
+                    <button onClick={onClose} className="p-2 rounded-md hover:bg-[var(--surface-hover-color)]"><X size={18}/></button>
+                </div>
+                <div className="space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-[var(--text-muted-color)]">Tarih</span><span className="font-medium">{purchase.purchaseDate && purchase.purchaseDate.toDate ? purchase.purchaseDate.toDate().toLocaleString('tr-TR') : ''}</span></div>
+                    <div className="flex justify-between"><span className="text-[var(--text-muted-color)]">Ürün</span><span className="font-medium">{purchase.productName}</span></div>
+                    <div className="flex justify-between"><span className="text-[var(--text-muted-color)]">Barkod</span><span className="font-medium">{purchase.barcode}</span></div>
+                    <div className="flex justify-between"><span className="text-[var(--text-muted-color)]">Tedarikçi</span><span className="font-medium">{purchase.supplier || '-'}</span></div>
+                    <div className="flex justify-between"><span className="text-[var(--text-muted-color)]">Fatura No</span><span className="font-medium">{purchase.invoiceNumber || '-'}</span></div>
+                    <div className="flex justify-between"><span className="text-[var(--text-muted-color)]">Miktar</span><span className="font-medium">{purchase.quantity}</span></div>
+                    <div className="flex justify-between"><span className="text-[var(--text-muted-color)]">Alış Fiyatı</span><span className="font-medium">{formatCurrency(purchase.purchasePrice)}</span></div>
+                    {Array.isArray(purchase.items) ? (
+                        <div className="mt-2 border-t border-[var(--border-color)] pt-2 space-y-1">
+                            {purchase.items.map((it, idx) => (
+                                <div key={idx} className="flex justify-between text-xs">
+                                    <span className="text-[var(--text-muted-color)]">{it.barcode} • {it.name} ({it.quantity} x {formatCurrency(it.purchasePrice)})</span>
+                                    <span className="font-medium">{formatCurrency(it.lineTotal || it.quantity * it.purchasePrice)}</span>
+                                </div>
+                            ))}
+                            <div className="flex justify-between text-xs"><span className="text-[var(--text-muted-color)]">Ara Toplam</span><span className="font-medium">{formatCurrency(purchase.subTotal || 0)}</span></div>
+                            <div className="flex justify-between text-xs"><span className="text-[var(--text-muted-color)]">KDV ({purchase.vatRate || 0}%)</span><span className="font-medium">{formatCurrency(purchase.vatAmount || 0)}</span></div>
+                            <div className="flex justify-between text-sm"><span className="text-[var(--text-muted-color)]">Toplam</span><span className="font-bold">{formatCurrency(purchase.totalCost || 0)}</span></div>
+                        </div>
+                    ) : (
+                        <div className="flex justify-between"><span className="text-[var(--text-muted-color)]">Toplam Tutar</span><span className="font-bold">{formatCurrency(purchase.totalCost)}</span></div>
+                    )}
+                    {purchase.notes && <div className="pt-2 text-[var(--text-muted-color)]"><span className="text-xs">Not: </span><span className="text-[var(--text-color)]">{purchase.notes}</span></div>}
+                </div>
+                <div className="flex justify-end gap-2 mt-4">
+                    <button onClick={() => printPurchaseReceipt(purchase)} className="px-4 py-2 bg-[var(--surface-color)] text-[var(--text-color)] rounded-lg hover:bg-[var(--surface-hover-color)] border border-[var(--border-color)] flex items-center gap-2"><Download size={16}/> Yazdır/İndir</button>
+                    <button onClick={onClose} className="px-4 py-2 bg-[var(--surface-color)] text-[var(--text-color)] rounded-lg hover:bg-[var(--surface-hover-color)] border border-[var(--border-color)]">Kapat</button>
+                    <button onClick={() => toast(`Kaydı silmek istediğinize emin misiniz?`, { action: { label: 'Evet, sil', onClick: handleDelete }, cancel: { label: 'Vazgeç' } })} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700" disabled={isDeleting}>Sil</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Tedarikçi Yönetimi
+const SuppliersPage = ({ suppliers, suppliersPath, purchases }) => {
+    const [form, setForm] = useState({ name: '', contact: '', phone: '', email: '', address: '' });
+    const [search, setSearch] = useState('');
+
+    const filtered = useMemo(() => (suppliers || []).filter(s => s.name.toLowerCase().includes(search.toLowerCase())), [suppliers, search]);
+
+    const addOrUpdateSupplier = async (e) => {
+        e.preventDefault();
+        const { name } = form;
+        if (!name.trim()) { toast.warning('Tedarikçi adı zorunludur.'); return; }
+        const supplierRef = doc(db, suppliersPath, name.trim());
+        const data = { ...form, name: name.trim(), updatedAt: serverTimestamp() };
+        await toast.promise(setDoc(supplierRef, data, { merge: true }), {
+            loading: 'Tedarikçi kaydediliyor...',
+            success: 'Tedarikçi kaydedildi.',
+            error: 'Tedarikçi kaydı sırasında hata oluştu.'
+        });
+        setForm({ name: '', contact: '', phone: '', email: '', address: '' });
+    };
+
+    const removeSupplier = async (name) => {
+        const supplierRef = doc(db, suppliersPath, name);
+        await toast.promise(deleteDoc(supplierRef), {
+            loading: 'Tedarikçi siliniyor...',
+            success: 'Tedarikçi silindi.',
+            error: 'Silme sırasında bir hata oluştu.'
+        });
+    };
+
+    const totalsBySupplier = useMemo(() => {
+        const map = {};
+        (purchases || []).forEach(p => {
+            const key = p.supplier || '-';
+            map[key] = (map[key] || 0) + (p.totalCost || 0);
+        });
+        return map;
+    }, [purchases]);
+
+    const exportSuppliers = () => {
+        const headers = [
+            { label: 'Ad', value: 'name' },
+            { label: 'İrtibat', value: (s) => s.contact || '' },
+            { label: 'Telefon', value: (s) => s.phone || '' },
+            { label: 'E-posta', value: (s) => s.email || '' },
+            { label: 'Adres', value: (s) => s.address || '' },
+            { label: 'Toplam Alım', value: (s) => totalsBySupplier[s.name] || 0 }
+        ];
+        downloadCSV(`tedarikciler_${new Date().toISOString().slice(0,10)}.csv`, headers, suppliers || []);
+    };
+
+    return (
+        <div className="space-y-4">
+            <div className="bg-[var(--surface-color)] p-4 rounded-lg border border-[var(--border-color)]">
+                <h3 className="font-semibold mb-3 text-[var(--text-color)] flex items-center gap-2"><Users size={18}/> Tedarikçi Ekle/Güncelle</h3>
+                <form onSubmit={addOrUpdateSupplier} className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+                    <div className="md:col-span-2">
+                        <label className="block text-xs text-[var(--text-muted-color)] mb-1">Ad</label>
+                        <input value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} className="w-full px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" required />
+                    </div>
+                    <div>
+                        <label className="block text-xs text-[var(--text-muted-color)] mb-1">İrtibat</label>
+                        <input value={form.contact} onChange={e => setForm(f => ({...f, contact: e.target.value}))} className="w-full px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                    </div>
+                    <div>
+                        <label className="block text-xs text-[var(--text-muted-color)] mb-1">Telefon</label>
+                        <input value={form.phone} onChange={e => setForm(f => ({...f, phone: e.target.value}))} className="w-full px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                    </div>
+                    <div>
+                        <label className="block text-xs text-[var(--text-muted-color)] mb-1">E-posta</label>
+                        <input type="email" value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))} className="w-full px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                    </div>
+                    <div className="md:col-span-2">
+                        <label className="block text-xs text-[var(--text-muted-color)] mb-1">Adres</label>
+                        <input value={form.address} onChange={e => setForm(f => ({...f, address: e.target.value}))} className="w-full px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)]" />
+                    </div>
+                    <div className="md:col-span-6 flex justify-end">
+                        <button type="submit" className="bg-[var(--primary-600)] text-white font-bold py-2 px-4 rounded-lg hover:bg-[var(--primary-700)]">Kaydet</button>
+                    </div>
+                </form>
+            </div>
+
+            <div className="flex items-center justify-between">
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Ara: tedarikçi adı" className="px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--bg-color)] text-[var(--text-color)] text-sm w-60" />
+                <button onClick={exportSuppliers} className="px-3 py-2 bg-[var(--surface-color)] border border-[var(--border-color)] rounded-lg text-[var(--text-color)] hover:bg-[var(--surface-hover-color)] flex items-center gap-1 text-sm"><Download size={16}/> CSV İndir</button>
+            </div>
+
+            <div className="max-h-[55vh] overflow-y-auto pr-2 space-y-2 pb-4">
+                {filtered.length === 0 ? (
+                    <EmptyState icon={<Users size={40}/>} message="Tedarikçi bulunamadı." />
+                ) : filtered.map(s => (
+                    <div key={s.id || s.name} className="p-3 rounded-lg bg-[var(--surface-color)] border border-[var(--border-color)]">
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <p className="text-sm font-semibold text-[var(--text-color)]">{s.name}</p>
+                                <p className="text-xs text-[var(--text-muted-color)]">{s.contact || ''} {s.phone ? `• ${s.phone}` : ''} {s.email ? `• ${s.email}` : ''}</p>
+                                {s.address && <p className="text-xs text-[var(--text-muted-color)]">{s.address}</p>}
+                            </div>
+                            <div className="text-right">
+                                <p className="text-xs text-[var(--text-muted-color)]">Toplam Alım</p>
+                                <p className="font-bold">{formatCurrency(totalsBySupplier[s.name] || 0)}</p>
+                                <button onClick={() => toast(`'${s.name}' silinsin mi?`, { action: { label: 'Evet, sil', onClick: () => removeSupplier(s.name) }, cancel: { label: 'İptal' } })} className="mt-2 p-1.5 text-red-600 hover:bg-red-100 rounded-md"><Trash2 size={14}/></button>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
         </div>
     );
 };
