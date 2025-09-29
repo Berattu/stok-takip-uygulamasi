@@ -1,3 +1,385 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Light Theme */
+:root {
+  --bg-color: #ffffff;
+  --surface-color: #f8fafc;
+  --surface-hover-color: #f1f5f9;
+  --text-color: #1e293b;
+  --text-muted-color: #64748b;
+  --border-color: #e2e8f0;
+  --primary-100: #ccfbf1;
+  --primary-300: #5eead4;
+  --primary-500: #14b8a6;
+  --primary-600: #0d9488;
+  --primary-700: #0f766e;
+  --primary-800: #115e59;
+  --primary-900: #134e4a;
+  --success-color: #10b981;
+  --warning-color: #f59e0b;
+  --error-color: #ef4444;
+  --info-color: #3b82f6;
+}
+
+/* Dark Theme */
+[data-theme="dark"] {
+  --bg-color: #0f172a;
+  --surface-color: #1e293b;
+  --surface-hover-color: #334155;
+  --text-color: #f8fafc;
+  --text-muted-color: #94a3b8;
+  --border-color: #334155;
+  --primary-100: #134e4a;
+  --primary-300: #0f766e;
+  --primary-500: #14b8a6;
+  --primary-600: #0d9488;
+  --primary-700: #0f766e;
+  --primary-800: #115e59;
+  --primary-900: #134e4a;
+  --success-color: #10b981;
+  --warning-color: #f59e0b;
+  --error-color: #ef4444;
+  --info-color: #3b82f6;
+}
+
+/* Teal Palette */
+[data-palette="teal"] {
+  --primary-100: #ccfbf1;
+  --primary-300: #5eead4;
+  --primary-500: #14b8a6;
+  --primary-600: #0d9488;
+  --primary-700: #0f766e;
+  --primary-800: #115e59;
+  --primary-900: #134e4a;
+}
+
+/* Blue Palette */
+[data-palette="blue"] {
+  --primary-100: #dbeafe;
+  --primary-300: #93c5fd;
+  --primary-500: #3b82f6;
+  --primary-600: #2563eb;
+  --primary-700: #1d4ed8;
+  --primary-800: #1e40af;
+  --primary-900: #1e3a8a;
+}
+
+/* Purple Palette */
+[data-palette="purple"] {
+  --primary-100: #e9d5ff;
+  --primary-300: #c4b5fd;
+  --primary-500: #8b5cf6;
+  --primary-600: #7c3aed;
+  --primary-700: #6d28d9;
+  --primary-800: #5b21b6;
+  --primary-900: #4c1d95;
+}
+
+/* Green Palette */
+[data-palette="green"] {
+  --primary-100: #dcfce7;
+  --primary-300: #86efac;
+  --primary-500: #10b981;
+  --primary-600: #059669;
+  --primary-700: #047857;
+  --primary-800: #065f46;
+  --primary-900: #064e3b;
+}
+
+/* Orange Palette */
+[data-palette="orange"] {
+  --primary-100: #fed7aa;
+  --primary-300: #fdba74;
+  --primary-500: #f97316;
+  --primary-600: #ea580c;
+  --primary-700: #c2410c;
+  --primary-800: #9a3412;
+  --primary-900: #7c2d12;
+}
+
+/* Red Palette */
+[data-palette="red"] {
+  --primary-100: #fee2e2;
+  --primary-300: #fca5a5;
+  --primary-500: #ef4444;
+  --primary-600: #dc2626;
+  --primary-700: #b91c1c;
+  --primary-800: #991b1b;
+  --primary-900: #7f1d1d;
+}
+
+/* Pink Palette */
+[data-palette="pink"] {
+  --primary-100: #fce7f3;
+  --primary-300: #f9a8d4;
+  --primary-500: #ec4899;
+  --primary-600: #db2777;
+  --primary-700: #be185d;
+  --primary-800: #9d174d;
+  --primary-900: #831843;
+}
+
+/* Indigo Palette */
+[data-palette="indigo"] {
+  --primary-100: #e0e7ff;
+  --primary-300: #a5b4fc;
+  --primary-500: #6366f1;
+  --primary-600: #4f46e5;
+  --primary-700: #4338ca;
+  --primary-800: #3730a3;
+  --primary-900: #312e81;
+}
+
+/* Base styles */
+body {
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface-color);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--primary-500);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-600);
+}
+
+/* Mobile Optimizations */
+@media (max-width: 768px) {
+  /* Touch-friendly button sizes */
+  button, .btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Larger touch targets */
+  input, select, textarea {
+    min-height: 44px;
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+  
+  /* Mobile-friendly spacing */
+  .space-y-4 > * + * {
+    margin-top: 1rem;
+  }
+  
+  .space-y-2 > * + * {
+    margin-top: 0.5rem;
+  }
+  
+  /* Responsive grid adjustments */
+  .grid-cols-1 {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+  
+  /* Mobile sidebar */
+  .sidebar-mobile {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: 100vw;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease-in-out;
+  }
+  
+  .sidebar-mobile.open {
+    transform: translateX(0);
+  }
+  
+  /* Mobile modal adjustments */
+  .modal-mobile {
+    margin: 1rem;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+  }
+  
+  /* Mobile table responsiveness */
+  .table-mobile {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  
+  /* Mobile card adjustments */
+  .card-mobile {
+    padding: 1rem;
+    margin: 0.5rem;
+  }
+  
+  /* Mobile form adjustments */
+  .form-mobile .form-group {
+    margin-bottom: 1rem;
+  }
+  
+  .form-mobile label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+  }
+  
+  /* Mobile navigation */
+  .nav-mobile {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--surface-color);
+    border-top: 1px solid var(--border-color);
+    padding: 0.5rem;
+    z-index: 40;
+  }
+  
+  .nav-mobile .nav-item {
+    flex: 1;
+    text-align: center;
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    transition: background-color 0.2s;
+  }
+  
+  .nav-mobile .nav-item.active {
+    background: var(--primary-100);
+    color: var(--primary-600);
+  }
+  
+  /* Mobile-specific utilities */
+  .mobile-only {
+    display: block;
+  }
+  
+  .desktop-only {
+    display: none;
+  }
+  
+  /* Safe area adjustments for iOS */
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  .safe-area-left {
+    padding-left: env(safe-area-inset-left);
+  }
+  
+  .safe-area-right {
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* Tablet Optimizations */
+@media (min-width: 769px) and (max-width: 1024px) {
+  /* Tablet-specific adjustments */
+  .tablet-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  
+  .tablet-sidebar {
+    width: 200px;
+  }
+  
+  .tablet-main {
+    margin-left: 200px;
+  }
+  
+  /* Tablet form adjustments */
+  .form-tablet .form-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+}
+
+/* Desktop Optimizations */
+@media (min-width: 1025px) {
+  .mobile-only {
+    display: none;
+  }
+  
+  .desktop-only {
+    display: block;
+  }
+  
+  .desktop-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* High DPI Display Support */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  /* High DPI optimizations */
+  .icon-hdpi {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+}
+
+/* Print Styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .print-only {
+    display: block !important;
+  }
+  
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  
+  .page-break {
+    page-break-before: always;
+  }
+  
+  .avoid-break {
+    page-break-inside: avoid;
+  }
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-color: #1a1a1a;
+    --surface-color: #2a2a2a;
+    --text-color: #ffffff;
+    --text-muted-color: #a0a0a0;
+    --border-color: #404040;
+  }
+}
+
+/* Animation Delays */
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+.animation-delay-4000 {
+  animation-delay: 4s;
+}
